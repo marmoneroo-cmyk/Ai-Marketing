@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "echo 'worker runs via tsx — no compile step'",
+    "watchPatterns": ["apps/worker/**", "packages/**", "pnpm-lock.yaml", "railway.worker.json"]
+  },
+  "deploy": {
+    "startCommand": "pnpm --filter @brandpilot/worker start",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}
