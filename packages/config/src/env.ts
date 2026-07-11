@@ -18,6 +18,11 @@ const envSchema = z.object({
 
   ANTHROPIC_API_KEY: z.string().min(1),
   VOYAGE_API_KEY: z.string().min(1),
+  // LLM provider toggle: 'anthropic' (default — paid, highest quality,
+  // production) or 'gemini' (Google's free tier — dev / testing). Both
+  // implement the same LlmClient contract, so this is a pure env switch.
+  LLM_PROVIDER: z.enum(['anthropic', 'gemini']).default('anthropic'),
+  GEMINI_API_KEY: z.string().optional(),
   FAL_KEY: z.string().optional(),
 
   META_APP_ID: z.string().optional(),

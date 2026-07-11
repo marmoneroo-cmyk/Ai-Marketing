@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { loadEnv, resolvePlanCaps, type Env } from '@brandpilot/config';
 import { createDb, organizations, type Database } from '@brandpilot/db';
 import { BusinessBrain, VoyageEmbedder } from '@brandpilot/business-brain';
-import { AgentRuntime, AnthropicLlmClient } from '@brandpilot/agent-runtime';
+import { AgentRuntime, createLlmClient } from '@brandpilot/agent-runtime';
 import { scrapeUrl, renderImage } from '@brandpilot/connectors';
 import { DiscoveryEngine } from '@brandpilot/discovery';
 import { BrandIntelligence } from '@brandpilot/brand-intelligence';
@@ -181,7 +181,13 @@ export function buildContext(): WorkerContext {
     },
   });
 
-  const llm = new AnthropicLlmClient(env.ANTHROPIC_API_KEY);
+  // Provider is selected by LLM_PROVIDER: 'anthropic' (default) or 'gemini'
+  // (free tier). Both satisfy the same LlmClient contract downstream.
+  const llm = createLlmClient({
+    provider: env.LLM_PROVIDER,
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
+    geminiApiKey: env.GEMINI_API_KEY,
+  });
   const runtime = new AgentRuntime({ brain, llm, spendGuard });
 
   const discovery = new DiscoveryEngine({ db, brain, runtime, scrapeUrl });
