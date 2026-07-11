@@ -42,6 +42,8 @@ export const mockDashboard: DashboardSnapshot = {
     appointmentsDelta: -3.2,
     revenue: 38650,
     revenueDelta: 21.7,
+    followers: 8420,
+    followersDelta: 2.4,
   },
   scores: {
     marketing: 82,
@@ -647,36 +649,42 @@ export const mockChannels: ConnectedChannel[] = [
     status: "connected",
     handle: "@luminaskin.co",
     connectedAt: "2026-06-14T10:00:00Z",
+    followers: 8420,
   },
   {
     provider: "facebook",
     status: "connected",
     handle: "Lumina Skin Studio",
     connectedAt: "2026-06-14T10:02:00Z",
+    followers: 3180,
   },
   {
     provider: "tiktok",
     status: "disconnected",
     handle: null,
     connectedAt: null,
+    followers: null,
   },
   {
     provider: "google",
     status: "connected",
     handle: "Lumina Skin Studio",
     connectedAt: "2026-06-20T09:00:00Z",
+    followers: null,
   },
   {
     provider: "youtube",
     status: "disconnected",
     handle: null,
     connectedAt: null,
+    followers: null,
   },
   {
     provider: "email",
     status: "connected",
     handle: "owner@luminaskin.co",
     connectedAt: "2026-06-14T10:05:00Z",
+    followers: null,
   },
 ];
 

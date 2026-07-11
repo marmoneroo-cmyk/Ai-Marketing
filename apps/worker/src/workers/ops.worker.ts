@@ -1,7 +1,9 @@
 import { Worker, type Job } from 'bullmq';
 import type IORedis from 'ioredis';
 import { QUEUES, type ReindexJobData, type AnalyticsJobData } from '@brandpilot/core';
+import { logger } from '@brandpilot/observability';
 import type { WorkerContext } from '../context';
+import { refreshFollowerMetrics } from '../audience-metrics';
 
 /**
  * Continuous learning: recompute derived intelligence (voice, patterns, audience)
@@ -30,6 +32,14 @@ export function createAnalyticsWorker(ctx: WorkerContext, connection: IORedis): 
     async (job: Job<AnalyticsJobData>) => {
       const { orgId } = job.data;
       await ctx.analytics.rollupDaily(orgId, new Date());
+      // Keep follower counts fresh daily. Best-effort — must never fail the
+      // rollup (rollupDaily's upsert leaves `followers` untouched, so this write
+      // is preserved).
+      try {
+        await refreshFollowerMetrics(ctx, orgId);
+      } catch (err: unknown) {
+        logger.warn({ err, orgId }, 'daily follower metrics refresh failed');
+      }
       await ctx.optimization.analyze(orgId);
       return { ok: true };
     },

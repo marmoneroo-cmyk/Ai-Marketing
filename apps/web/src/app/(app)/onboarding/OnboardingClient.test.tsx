@@ -22,9 +22,10 @@ const ONE_CONNECTED: ConnectedChannel[] = [
     status: "connected",
     handle: "@luminaskin.co",
     connectedAt: "2026-06-14T10:00:00Z",
+    followers: 8400,
   },
-  { provider: "facebook", status: "disconnected", handle: null, connectedAt: null },
-  { provider: "tiktok", status: "disconnected", handle: null, connectedAt: null },
+  { provider: "facebook", status: "disconnected", handle: null, connectedAt: null, followers: null },
+  { provider: "tiktok", status: "disconnected", handle: null, connectedAt: null, followers: null },
 ];
 
 const NONE_CONNECTED: ConnectedChannel[] = ONE_CONNECTED.map((c) => ({

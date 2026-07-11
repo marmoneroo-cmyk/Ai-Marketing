@@ -105,6 +105,7 @@ export class ConnectorsController {
           handle: socialAccounts.handle,
           status: socialAccounts.status,
           connectedAt: socialAccounts.connectedAt,
+          metadata: socialAccounts.metadata,
         })
         .from(socialAccounts)
         .where(eq(socialAccounts.orgId, orgId))

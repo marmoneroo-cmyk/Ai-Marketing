@@ -1,6 +1,7 @@
 import { loadEnv, connectorRouteUrl } from '@brandpilot/config';
 import { AppError } from '@brandpilot/core';
 import type {
+  AudienceStats,
   AuthTokens,
   Connector,
   ConnectResult,
@@ -54,6 +55,12 @@ interface MeResponse extends IgErrorEnvelope {
   user_id?: string;
   username?: string;
   id?: string;
+}
+/** `/me` audience fields — available for Business/Creator accounts on Instagram Login. */
+interface IgAudienceResponse extends IgErrorEnvelope {
+  followers_count?: number;
+  follows_count?: number;
+  media_count?: number;
 }
 interface IgIdResponse extends IgErrorEnvelope {
   id?: string;
@@ -249,6 +256,24 @@ export class InstagramLoginConnector implements Connector {
       const base: PulledItem = { kind: 'media', externalId: node.id, raw: node, capturedAt };
       return Object.keys(metrics).length > 0 ? { ...base, metrics } : base;
     });
+  }
+
+  /**
+   * Fetch account audience stats (follower/following/media counts) from the
+   * `/me` node. `opts.accountId` is unused (the token identifies the account),
+   * kept for interface symmetry. Business/Creator accounts expose
+   * `followers_count`; a personal account simply omits it → `undefined`.
+   */
+  async fetchAudience(opts: PullOptions): Promise<AudienceStats> {
+    const res = await igGet<IgAudienceResponse>(
+      `${IG_GRAPH_BASE}/me?fields=followers_count,follows_count,media_count` +
+        `&access_token=${encodeURIComponent(opts.accessToken)}`,
+    );
+    const stats: AudienceStats = {};
+    if (typeof res.followers_count === 'number') stats.followers = res.followers_count;
+    if (typeof res.follows_count === 'number') stats.follows = res.follows_count;
+    if (typeof res.media_count === 'number') stats.mediaCount = res.media_count;
+    return stats;
   }
 
   /**

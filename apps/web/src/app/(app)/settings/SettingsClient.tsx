@@ -73,6 +73,12 @@ function ChannelRow({ channel }: { channel: ConnectedChannel }) {
           {channel.handle
             ? channel.handle
             : "Connect this channel so BrandPilot can publish and reply."}
+          {channel.followers !== null ? (
+            <span className="text-subtle">
+              {" "}
+              · {channel.followers.toLocaleString()} followers
+            </span>
+          ) : null}
           {channel.connectedAt ? (
             <span className="text-subtle">
               {" "}

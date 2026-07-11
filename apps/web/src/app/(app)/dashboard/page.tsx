@@ -106,6 +106,13 @@ export default async function DashboardPage() {
           icon={<IconRevenue className="h-4 w-4" />}
           href="/analytics"
         />
+        <StatTile
+          label="Followers"
+          value={formatCompactNumber(kpis.followers)}
+          delta={kpis.followersDelta}
+          icon={<IconLeads className="h-4 w-4" />}
+          href="/analytics"
+        />
       </section>
 
       {!hasActivity ? (

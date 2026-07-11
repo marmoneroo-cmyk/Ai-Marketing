@@ -65,6 +65,13 @@ export interface PushResult {
   raw: unknown;
 }
 
+/** Account-level audience stats (follower/following/media counts), when a provider exposes them. */
+export interface AudienceStats {
+  followers?: number;
+  follows?: number;
+  mediaCount?: number;
+}
+
 /**
  * The interface every connector implements. Methods return promises and use the
  * global `fetch`; auth material is passed in explicitly (never read from module
@@ -77,4 +84,10 @@ export interface Connector {
   pull(resource: string, opts: PullOptions): Promise<PulledItem[]>;
   push(action: PushAction): Promise<PushResult>;
   subscribeWebhooks(topics: string[]): Promise<void>;
+  /**
+   * Fetch account-level audience stats (e.g. follower count). Optional — only
+   * providers that expose it implement it; callers must feature-detect. Uses the
+   * same explicit auth material as `pull` (accountId = the provider user id).
+   */
+  fetchAudience?(opts: PullOptions): Promise<AudienceStats>;
 }

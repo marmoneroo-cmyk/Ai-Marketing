@@ -75,6 +75,40 @@ describe('InstagramLoginConnector.connect', () => {
   });
 });
 
+describe('InstagramLoginConnector.fetchAudience', () => {
+  it('reads follower/following/media counts from the /me node', async () => {
+    let requestedUrl = '';
+    global.fetch = vi.fn(async (url: string | URL) => {
+      requestedUrl = String(url);
+      return jsonResponse({ followers_count: 8421, follows_count: 312, media_count: 47 });
+    }) as unknown as typeof fetch;
+
+    const stats = await new InstagramLoginConnector().fetchAudience({
+      accountId: '178414',
+      accessToken: 'long-tok',
+    });
+
+    expect(stats).toEqual({ followers: 8421, follows: 312, mediaCount: 47 });
+    // Requests the audience fields on /me; the token rides a query param, not the path.
+    expect(requestedUrl).toContain('graph.instagram.com/me?fields=followers_count');
+    expect(requestedUrl).toContain('access_token=long-tok');
+  });
+
+  it('omits follower count for a personal account that has no followers_count field', async () => {
+    global.fetch = vi.fn(async () =>
+      jsonResponse({ media_count: 5 }),
+    ) as unknown as typeof fetch;
+
+    const stats = await new InstagramLoginConnector().fetchAudience({
+      accountId: '1',
+      accessToken: 't',
+    });
+
+    expect(stats.followers).toBeUndefined();
+    expect(stats.mediaCount).toBe(5);
+  });
+});
+
 describe('InstagramLoginConnector.push', () => {
   it('publishes via the two-step container + media_publish', async () => {
     const calls: string[] = [];

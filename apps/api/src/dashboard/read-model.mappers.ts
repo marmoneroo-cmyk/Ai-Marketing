@@ -149,6 +149,8 @@ export interface WebChannel {
   status: 'connected' | 'disconnected' | 'error';
   handle: string | null;
   connectedAt: string | null;
+  /** Latest follower count from the account's stored metadata; null when unknown. */
+  followers: number | null;
 }
 
 /**
@@ -180,6 +182,15 @@ interface SocialAccountRow {
   handle: string | null;
   status: string;
   connectedAt: Date | string | null;
+  /** `social_accounts.metadata` jsonb — may carry a `followers` count. */
+  metadata?: unknown;
+}
+
+/** Read a numeric `followers` field out of an account's jsonb metadata, or null. */
+function readFollowers(metadata: unknown): number | null {
+  if (typeof metadata !== 'object' || metadata === null) return null;
+  const value = (metadata as Record<string, unknown>).followers;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -210,7 +221,13 @@ export function buildChannelList(rows: readonly SocialAccountRow[]): WebChannel[
     // Keep the first row seen (callers pass newest-first), but let a healthy
     // `connected` row replace a previously-seen errored one.
     if (!existing || (existing.status !== 'connected' && status === 'connected')) {
-      best.set(provider, { provider, status, handle: row.handle, connectedAt });
+      best.set(provider, {
+        provider,
+        status,
+        handle: row.handle,
+        connectedAt,
+        followers: readFollowers(row.metadata),
+      });
     }
   }
 
@@ -221,6 +238,7 @@ export function buildChannelList(rows: readonly SocialAccountRow[]): WebChannel[
         status: 'disconnected',
         handle: null,
         connectedAt: null,
+        followers: null,
       },
   );
 }

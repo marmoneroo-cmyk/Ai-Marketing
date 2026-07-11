@@ -39,6 +39,8 @@ interface KpiSummary {
   appointmentsDelta: number;
   revenue: number;
   revenueDelta: number;
+  followers: number;
+  followersDelta: number;
 }
 
 interface ScoreTrio {
@@ -92,6 +94,8 @@ const EMPTY_KPIS: KpiSummary = {
   appointmentsDelta: 0,
   revenue: 0,
   revenueDelta: 0,
+  followers: 0,
+  followersDelta: 0,
 };
 
 const RECENT_LIMIT = 5;
@@ -167,6 +171,7 @@ export class DashboardController {
     const leads = toNumber(latest.leads);
     const appts = toNumber(latest.appointments);
     const revenue = toNumber(latest.revenue);
+    const followers = toNumber(latest.followers);
 
     return {
       reach,
@@ -177,6 +182,8 @@ export class DashboardController {
       appointmentsDelta: percentDelta(appts, toNumber(prior?.appointments)),
       revenue,
       revenueDelta: percentDelta(revenue, toNumber(prior?.revenue)),
+      followers,
+      followersDelta: percentDelta(followers, toNumber(prior?.followers)),
     };
   }
 

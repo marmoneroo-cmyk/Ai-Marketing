@@ -7,6 +7,7 @@ import { contentPlans } from '@brandpilot/db';
 import type { DiscoverySources } from '@brandpilot/discovery';
 import { logger } from '@brandpilot/observability';
 import type { WorkerContext } from '../context';
+import { refreshFollowerMetrics } from '../audience-metrics';
 
 /**
  * First-run bootstrap: once the Business DNA exists, generate the org's first
@@ -20,7 +21,7 @@ async function bootstrapFirstContentPlan(ctx: WorkerContext, orgId: string): Pro
   const existing = await ctx.db
     .select({ id: contentPlans.id })
     .from(contentPlans)
-    .where(and(eq(contentPlans.orgId, orgId)))
+    .where(eq(contentPlans.orgId, orgId))
     .limit(1);
   if (existing.length > 0) return;
 
@@ -61,6 +62,15 @@ export function createDiscoveryWorker(ctx: WorkerContext, connection: IORedis): 
         await bootstrapFirstContentPlan(ctx, orgId);
       } catch (err: unknown) {
         logger.warn({ err, orgId }, 'first content-plan bootstrap failed');
+      }
+
+      // Refresh audience stats (follower counts) for any connected account so the
+      // dashboard/connections screens show live numbers right after onboarding.
+      // Best-effort — never fails the discovery job.
+      try {
+        await refreshFollowerMetrics(ctx, orgId);
+      } catch (err: unknown) {
+        logger.warn({ err, orgId }, 'follower metrics refresh failed');
       }
 
       return result;

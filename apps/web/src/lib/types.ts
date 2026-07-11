@@ -69,6 +69,8 @@ export interface KpiSummary {
   appointmentsDelta: number;
   revenue: number;
   revenueDelta: number;
+  followers: number;
+  followersDelta: number;
 }
 
 export interface ScoreTrio {
@@ -246,6 +248,8 @@ export interface ConnectedChannel {
   status: ChannelStatus;
   handle: string | null;
   connectedAt: string | null;
+  /** Latest follower count for this account; null when the provider doesn't expose it. */
+  followers: number | null;
 }
 
 export interface OrgProfile {
