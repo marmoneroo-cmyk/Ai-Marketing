@@ -2,11 +2,10 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "echo 'api runs via tsx — no compile step'",
-    "watchPatterns": ["apps/api/**", "packages/**", "pnpm-lock.yaml", "railway.api.json"]
+    "buildCommand": "echo 'api runs via swc-node — no compile step'"
   },
   "deploy": {
-    "startCommand": "pnpm --filter @brandpilot/api exec tsx src/main.ts",
+    "startCommand": "pnpm --filter @brandpilot/api exec node -r @swc-node/register src/main.ts",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
