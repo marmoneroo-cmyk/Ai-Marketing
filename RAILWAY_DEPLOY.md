@@ -36,7 +36,11 @@ TOKEN_ENCRYPTION_KEY=<32-byte base64>
 ANTHROPIC_API_KEY=<real key>
 VOYAGE_API_KEY=<real key>
 ```
-**api** also: `APP_URL=https://${{web.RAILWAY_PUBLIC_DOMAIN}}`  (CORS origin)
+**api** also (its own public origin + CORS + OAuth redirect base):
+```
+APP_URL=https://${{web.RAILWAY_PUBLIC_DOMAIN}}
+API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
+```
 
 **web** — do **not** set `NODE_ENV=production` here (the build needs devDependencies):
 ```
@@ -49,6 +53,31 @@ NEXT_PUBLIC_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # AUTH_SECRET
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"   # TOKEN_ENCRYPTION_KEY
 ```
+
+## Connecting Instagram / Facebook (Meta)
+
+The Meta connector is **real** (Graph API v21.0): once configured it pulls real media/comments
+and the discovery engine analyzes them. To turn on the **Connect Instagram/Facebook** buttons,
+set these on **api** and **worker**:
+```
+META_APP_ID=<from your Meta app>
+META_APP_SECRET=<from your Meta app>
+META_VERIFY_TOKEN=<any random string; re-enter the same value in the Meta webhook config>
+```
+
+Then in the [Meta developer dashboard](https://developers.facebook.com/apps):
+1. Create an app — type **Business** — and add the **Facebook Login** + **Instagram** products.
+2. Set the **Valid OAuth Redirect URI** to (byte-identical — this is `${API_URL}/connectors/meta/callback`):
+   `https://<your-api-domain>/connectors/meta/callback`
+3. Scopes are already requested by the code: `instagram_basic`, `instagram_content_publish`,
+   `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `business_management`.
+4. The Instagram account must be **Business or Creator**, linked to a **Facebook Page**
+   (the Graph API cannot read personal IG accounts).
+5. In **Development** mode it works for you + added testers. For real customers, submit for
+   **Meta App Review** + Business Verification.
+
+Until `META_APP_ID` is set, `Connect` returns `META_APP_ID is not configured`.
+The same one Meta app powers both Instagram and Facebook (one start/callback pair).
 
 ## Notes
 - **DB port**: use `:5432` (Supabase session pooler — the one migrations ran on). `:6543`
