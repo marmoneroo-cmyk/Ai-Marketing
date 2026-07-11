@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthHero, BrandWordmark } from "@/components/auth-hero";
 import { GoogleAuthButton } from "@/components/google-auth-button";
-import { login } from "@/lib/api";
+import { clearToken, login } from "@/lib/api";
 import { DEMO_MODE } from "@/lib/env";
 import type { AppRoutes } from "@/lib/routes";
 
@@ -56,9 +56,21 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // A submit-time error takes priority over a stale oauth_error left over
-  // from an earlier redirect; only one alert is ever shown at a time.
-  const displayError = error ?? mapOAuthError(searchParams.get("oauth_error"));
+  // A session that expired mid-use bounces here with ?session=expired; clear any
+  // dead token so a stale value can't linger in localStorage or the mirror
+  // cookie and re-trigger the loop on the next navigation.
+  const sessionExpired = searchParams.get("session") === "expired";
+  useEffect(() => {
+    if (sessionExpired) clearToken();
+  }, [sessionExpired]);
+
+  // A submit-time error takes priority over a stale oauth_error or the
+  // session-expired notice left over from an earlier redirect; only one alert is
+  // ever shown at a time.
+  const displayError =
+    error ??
+    mapOAuthError(searchParams.get("oauth_error")) ??
+    (sessionExpired ? "Your session expired — please sign in again." : null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

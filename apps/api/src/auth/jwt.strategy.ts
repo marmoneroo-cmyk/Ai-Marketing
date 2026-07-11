@@ -33,6 +33,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: loadEnv().AUTH_SECRET,
+      // Pin verification to the symmetric algorithm we sign with, so a token can
+      // never be validated under a different `alg` (defense-in-depth against
+      // algorithm-confusion and `alg:none`).
+      algorithms: ['HS256'],
     });
   }
 

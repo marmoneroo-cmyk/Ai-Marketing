@@ -13,6 +13,12 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from './permissions.guard';
 import { EmailModule } from '../email/email.module';
 
+// Access-token lifetime. Kept short because there is no refresh-token rotation
+// or server-side revocation yet, so this IS the full session length and a
+// stolen token is valid until it expires. Expiry is now handled gracefully
+// client-side (the web proxy + api client redirect to login instead of
+// crashing), so raising this is a UX-vs-security tradeoff — do it together with
+// refresh tokens, not alone.
 const ACCESS_TOKEN_TTL = '1h';
 
 /**

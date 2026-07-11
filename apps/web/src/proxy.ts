@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isSessionLive } from "./lib/jwt";
 
 /**
  * Route protection for the authenticated `(app)` route group.
@@ -47,18 +48,36 @@ function isProtected(pathname: string): boolean {
   );
 }
 
+function isAuthPage(pathname: string): boolean {
+  return (
+    pathname === LOGIN_PATH ||
+    pathname === SIGNUP_PATH ||
+    pathname === FORGOT_PASSWORD_PATH ||
+    pathname === RESET_PASSWORD_PATH
+  );
+}
+
+/** Expire the mirror cookie on a response, matching the path the client set it on. */
+function clearTokenCookie(response: NextResponse): void {
+  response.cookies.set(TOKEN_COOKIE, "", { path: "/", maxAge: 0, sameSite: "lax" });
+}
+
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get(TOKEN_COOKIE)?.value;
-  const isAuthed = Boolean(token && token.length > 0);
+  const rawToken = request.cookies.get(TOKEN_COOKIE)?.value;
+  const isAuthed = isSessionLive(rawToken);
+  // Present but not live → an expired/garbled token we should proactively clear.
+  const hasStaleToken = Boolean(rawToken) && !isAuthed;
 
-  // Keep authenticated users out of the login/signup/password-reset screens.
+  // Keep authenticated users out of the login/signup/password-reset screens —
+  // UNLESS they were just bounced here by an expired session (?session=expired).
+  // That escape hatch lets the login page render so it can clear a dead token
+  // client-side; without it, an invalid-but-unexpired token would loop between
+  // here and the app shell.
   if (
-    (pathname === LOGIN_PATH ||
-      pathname === SIGNUP_PATH ||
-      pathname === FORGOT_PASSWORD_PATH ||
-      pathname === RESET_PASSWORD_PATH) &&
-    isAuthed
+    isAuthPage(pathname) &&
+    isAuthed &&
+    request.nextUrl.searchParams.get("session") !== "expired"
   ) {
     const url = request.nextUrl.clone();
     url.pathname = DEFAULT_AUTHED_PATH;
@@ -66,12 +85,28 @@ export function proxy(request: NextRequest): NextResponse {
     return NextResponse.redirect(url);
   }
 
-  // Gate the protected app shell.
+  // Gate the protected app shell. An expired/malformed token counts as
+  // unauthenticated. When one is present we send the user to login with a
+  // ?session=expired notice AND clear the cookie, so (a) they see why they were
+  // signed out and (b) the block above doesn't immediately bounce them back —
+  // which would loop.
   if (isProtected(pathname) && !isAuthed) {
     const url = request.nextUrl.clone();
     url.pathname = LOGIN_PATH;
-    url.search = `?next=${encodeURIComponent(pathname)}`;
-    return NextResponse.redirect(url);
+    url.search = hasStaleToken
+      ? "?session=expired"
+      : `?next=${encodeURIComponent(pathname)}`;
+    const response = NextResponse.redirect(url);
+    if (hasStaleToken) clearTokenCookie(response);
+    return response;
+  }
+
+  // A stale token lingering on a public page: clear it so the next navigation
+  // starts from a clean, fully-logged-out state.
+  if (hasStaleToken) {
+    const response = NextResponse.next();
+    clearTokenCookie(response);
+    return response;
   }
 
   return NextResponse.next();

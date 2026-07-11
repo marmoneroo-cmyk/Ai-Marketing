@@ -78,9 +78,12 @@ export function setToken(token: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(TOKEN_KEY, token);
-    // Non-HttpOnly mirror so the value is available before hydration and to
-    // the route-protection proxy (apps/web/src/proxy.ts).
-    document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+    // Non-HttpOnly mirror so the value is available before hydration and to the
+    // route-protection proxy (apps/web/src/proxy.ts). Marked Secure on HTTPS so
+    // the token is never sent over cleartext; omitted on http://localhost, where
+    // Secure cookies aren't stored.
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax${secure}`;
   } catch {
     // Storage may be unavailable (private mode); ignore.
   }
@@ -136,6 +139,32 @@ function getErrorMessage(error: unknown): string {
   return "Unexpected error";
 }
 
+/** Where an expired/invalid session lands — login clears any dead token and shows a notice. */
+const SESSION_EXPIRED_PATH = "/login?session=expired";
+
+/**
+ * React to a 401 on an authenticated request. On the client this clears the
+ * dead token and hard-redirects to a clean login (unless already there). During
+ * SSR it calls Next's redirect(), which unwinds the Server Component render to
+ * /login instead of letting an unhandled throw crash the whole page. In demo
+ * mode it no-ops, so the caller's withFallback still yields mock data.
+ */
+async function handleSessionExpiry(): Promise<void> {
+  if (DEMO_MODE) return;
+  if (typeof window !== "undefined") {
+    clearToken();
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.replace(SESSION_EXPIRED_PATH);
+    }
+    return;
+  }
+  // Server render: redirect() throws a NEXT_REDIRECT sentinel that must
+  // propagate (withFallback rethrows it outside demo mode) so Next performs the
+  // redirect rather than surfacing an error boundary.
+  const { redirect } = await import("next/navigation");
+  redirect(SESSION_EXPIRED_PATH);
+}
+
 /**
  * Perform a request and return the unwrapped `data` payload.
  * Throws on non-2xx, network failure, or `success: false`.
@@ -168,6 +197,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       .catch(() => null)) as ApiResponse<T> | null;
 
     if (!response.ok || !payload || payload.success !== true) {
+      // A 401 on an authenticated request means the session token is expired or
+      // invalid: on the client, clear it and redirect to a clean login; during
+      // SSR, unwind the render to /login (see handleSessionExpiry) instead of
+      // throwing — an unhandled throw here renders as a full-page crash.
+      if (auth && response.status === 401) {
+        await handleSessionExpiry();
+      }
       const message =
         payload?.error?.message ?? `Request failed with status ${response.status}`;
       throw new Error(message);
