@@ -36,7 +36,9 @@ const DEFAULT_PULL_LIMIT = 25;
 interface ShortLivedTokenResponse {
   access_token?: string;
   user_id?: number | string;
-  permissions?: string;
+  // Instagram returns this as an ARRAY of scope strings (older docs showed a
+  // comma-joined string) — normalizePermissions() handles both.
+  permissions?: string | string[];
   error_type?: string;
   error_message?: string;
 }
@@ -190,9 +192,7 @@ export class InstagramLoginConnector implements Connector {
     );
     const externalId = me.user_id ?? me.id ?? fallbackUserId;
     const handle = me.username;
-    const scopes = short.permissions
-      ? short.permissions.split(',').map((s) => s.trim()).filter(Boolean)
-      : undefined;
+    const scopes = normalizePermissions(short.permissions);
 
     const tokens: AuthTokens = {
       accessToken,
@@ -290,4 +290,20 @@ export class InstagramLoginConnector implements Connector {
 /** Narrow an unknown payload field to `string`, or `undefined` when absent/other. */
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Normalize the granted `permissions` from the short-lived token response into a
+ * string[]. Instagram returns an array (`["instagram_business_basic", …]`), but
+ * older docs showed a comma-joined string — accept either, and anything else
+ * yields undefined so a shape surprise never crashes the connect flow.
+ */
+function normalizePermissions(permissions: unknown): string[] | undefined {
+  const list = Array.isArray(permissions)
+    ? permissions.map((p) => String(p).trim())
+    : typeof permissions === 'string'
+      ? permissions.split(',').map((s) => s.trim())
+      : [];
+  const scopes = list.filter(Boolean);
+  return scopes.length > 0 ? scopes : undefined;
 }

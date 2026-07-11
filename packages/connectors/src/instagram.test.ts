@@ -37,7 +37,8 @@ describe('InstagramLoginConnector.connect', () => {
         return jsonResponse({
           access_token: 'short-tok',
           user_id: 178414,
-          permissions: 'instagram_business_basic,instagram_business_content_publish',
+          // Instagram returns permissions as an ARRAY (the real-world shape).
+          permissions: ['instagram_business_basic', 'instagram_business_content_publish'],
         });
       }
       if (u.includes('graph.instagram.com/access_token')) {
