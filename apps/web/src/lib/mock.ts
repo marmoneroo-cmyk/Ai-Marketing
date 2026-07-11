@@ -440,6 +440,7 @@ export const mockContent: ContentItem[] = [
 
 export const mockLogin: LoginResult = {
   accessToken: "demo.mock.token",
+  refreshToken: "demo.mock.refresh",
 };
 
 export const mockConversations: ConversationSummary[] = [

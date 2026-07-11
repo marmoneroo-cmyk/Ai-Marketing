@@ -12,6 +12,15 @@ export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 /** Team-invite links expire after 7 days (invitees may act on their own schedule). */
 export const ORG_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * Refresh tokens live 30 days and slide forward on every rotation, so an active
+ * user effectively stays signed in indefinitely while an idle session lapses
+ * after 30 days. This is the real session length; the access token (see
+ * ACCESS_TOKEN_TTL in the API's auth.module) is deliberately short because a
+ * refresh token can be revoked server-side and an access token cannot.
+ */
+export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** Retrieval confidence below which customer-facing output MUST escalate to a human. */
 export const MIN_GROUNDING_CONFIDENCE = 0.6;
 

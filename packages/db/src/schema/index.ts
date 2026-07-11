@@ -1,6 +1,7 @@
 // Barrel for all schema tables. Domain files are added per phase.
 export * from './identity';
 export * from './password-reset';
+export * from './refresh-tokens';
 export * from './connections';
 export * from './brain-semantic';
 export * from './brain-episodic';

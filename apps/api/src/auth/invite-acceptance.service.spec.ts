@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { JwtService } from '@nestjs/jwt';
+import type { SessionService } from './session.service';
 import * as argon2 from 'argon2';
 import { resetEnvCache, loadEnv } from '@brandpilot/config';
 import { orgInvites, users, memberships, type Database } from '@brandpilot/db';
@@ -188,7 +188,12 @@ function fakeDb(rec: Recorded, opts: FakeDbOptions = {}): Database {
   } as unknown as Database;
 }
 
-const jwt = { sign: vi.fn(() => 'signed.jwt.token') } as unknown as JwtService;
+const session = {
+  issue: vi.fn(async () => ({
+    accessToken: 'signed.jwt.token',
+    refreshToken: 'signed.refresh.token',
+  })),
+} as unknown as SessionService;
 
 function mintToken(orgId = ORG_ID, inviteId = INVITE_ID): string {
   return createInviteToken(orgId, inviteId, loadEnv().AUTH_SECRET);
@@ -197,7 +202,7 @@ function mintToken(orgId = ORG_ID, inviteId = INVITE_ID): string {
 beforeEach(() => {
   seedTestEnv();
   logger.info.mockClear();
-  (jwt.sign as ReturnType<typeof vi.fn>).mockClear();
+  (session.issue as ReturnType<typeof vi.fn>).mockClear();
 });
 
 describe('InviteAcceptanceService.previewInvite', () => {
@@ -209,7 +214,7 @@ describe('InviteAcceptanceService.previewInvite', () => {
         org: { id: ORG_ID, name: 'Acme Co' },
         existingUser: { id: 'user-1', email: INVITE_EMAIL },
       }),
-      jwt,
+      session,
     );
 
     const preview = await service.previewInvite(mintToken());
@@ -230,7 +235,7 @@ describe('InviteAcceptanceService.previewInvite', () => {
         org: { id: ORG_ID, name: 'Acme Co' },
         existingUser: undefined,
       }),
-      jwt,
+      session,
     );
 
     const preview = await service.previewInvite(mintToken());
@@ -245,7 +250,7 @@ describe('InviteAcceptanceService.previewInvite', () => {
         invite: freshInvite({ expiresAt: new Date(Date.now() - 1000) }),
         org: { id: ORG_ID, name: 'Acme Co' },
       }),
-      jwt,
+      session,
     );
 
     await expect(service.previewInvite(mintToken())).rejects.toMatchObject({ code: 'bad_request' });
@@ -259,7 +264,7 @@ describe('InviteAcceptanceService.previewInvite', () => {
         invite: freshInvite({ acceptedAt: new Date() }),
         org: { id: ORG_ID, name: 'Acme Co' },
       }),
-      jwt,
+      session,
     );
 
     await expect(service.previewInvite(mintToken())).rejects.toMatchObject({ code: 'bad_request' });
@@ -267,7 +272,7 @@ describe('InviteAcceptanceService.previewInvite', () => {
 
   it('rejects a tampered token with the SAME generic bad_request, without ever querying the invite', async () => {
     const rec = newRecord();
-    const service = new InviteAcceptanceService(fakeDb(rec, {}), jwt);
+    const service = new InviteAcceptanceService(fakeDb(rec, {}), session);
 
     const validToken = mintToken();
     const tamperedToken = `${validToken.slice(0, -2)}zz`;
@@ -277,7 +282,7 @@ describe('InviteAcceptanceService.previewInvite', () => {
 
   it('rejects a missing/empty token with a generic bad_request', async () => {
     const rec = newRecord();
-    const service = new InviteAcceptanceService(fakeDb(rec, {}), jwt);
+    const service = new InviteAcceptanceService(fakeDb(rec, {}), session);
 
     await expect(service.previewInvite('')).rejects.toMatchObject({ code: 'bad_request' });
   });
@@ -288,7 +293,7 @@ describe('InviteAcceptanceService.acceptInvite — new user (no prior account)',
     const rec = newRecord();
     const service = new InviteAcceptanceService(
       fakeDb(rec, { invite: freshInvite(), existingUser: undefined }),
-      jwt,
+      session,
     );
 
     const result = await service.acceptInvite(mintToken(), 'aStrongPassword123', 'Jane Doe');
@@ -317,7 +322,7 @@ describe('InviteAcceptanceService.acceptInvite — new user (no prior account)',
     expect(inviteUpdate).toBeDefined();
     expect(inviteUpdate?.set.acceptedAt).toBeInstanceOf(Date);
 
-    expect(jwt.sign).toHaveBeenCalledWith({ sub: 'new-user-1', orgId: ORG_ID, role: INVITE_ROLE });
+    expect(session.issue).toHaveBeenCalledWith({ sub: 'new-user-1', orgId: ORG_ID, role: INVITE_ROLE });
 
     expect(logger.info).toHaveBeenCalledTimes(1);
     expect(logger.info).toHaveBeenCalledWith(
@@ -336,7 +341,7 @@ describe('InviteAcceptanceService.acceptInvite — new user (no prior account)',
     const rec = newRecord();
     const service = new InviteAcceptanceService(
       fakeDb(rec, { invite: freshInvite(), existingUser: undefined }),
-      jwt,
+      session,
     );
 
     await expect(service.acceptInvite(mintToken(), undefined, 'Jane Doe')).rejects.toMatchObject({
@@ -350,7 +355,7 @@ describe('InviteAcceptanceService.acceptInvite — new user (no prior account)',
     // partial-state gap Fix 1 targets.
     expect(rec.inserted).toHaveLength(0);
     expect(rec.updated).toHaveLength(0);
-    expect(jwt.sign).not.toHaveBeenCalled();
+    expect(session.issue).not.toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
   });
 });
@@ -361,7 +366,7 @@ describe('InviteAcceptanceService.acceptInvite — existing user', () => {
     const existingUser: UserRow = { id: 'existing-user-1', email: INVITE_EMAIL };
     const service = new InviteAcceptanceService(
       fakeDb(rec, { invite: freshInvite(), existingUser, existingMembership: undefined }),
-      jwt,
+      session,
     );
 
     const result = await service.acceptInvite(mintToken(), undefined, undefined);
@@ -386,7 +391,7 @@ describe('InviteAcceptanceService.acceptInvite — existing user', () => {
     const inviteUpdate = rec.updated.find((u) => u.table === orgInvites);
     expect(inviteUpdate?.set.acceptedAt).toBeInstanceOf(Date);
 
-    expect(jwt.sign).toHaveBeenCalledWith({
+    expect(session.issue).toHaveBeenCalledWith({
       sub: 'existing-user-1',
       orgId: ORG_ID,
       role: INVITE_ROLE,
@@ -414,7 +419,7 @@ describe('InviteAcceptanceService.acceptInvite — existing user', () => {
     };
     const service = new InviteAcceptanceService(
       fakeDb(rec, { invite: freshInvite(), existingUser, existingMembership }),
-      jwt,
+      session,
     );
 
     const result = await service.acceptInvite(mintToken(), undefined, undefined);
@@ -432,7 +437,7 @@ describe('InviteAcceptanceService.acceptInvite — invalid invite states', () =>
     const rec = newRecord();
     const service = new InviteAcceptanceService(
       fakeDb(rec, { invite: freshInvite({ expiresAt: new Date(Date.now() - 1000) }) }),
-      jwt,
+      session,
     );
 
     await expect(service.acceptInvite(mintToken(), 'somePassword123', undefined)).rejects.toMatchObject({
@@ -441,14 +446,14 @@ describe('InviteAcceptanceService.acceptInvite — invalid invite states', () =>
 
     expect(rec.inserted).toHaveLength(0);
     expect(rec.updated).toHaveLength(0);
-    expect(jwt.sign).not.toHaveBeenCalled();
+    expect(session.issue).not.toHaveBeenCalled();
   });
 
   it('rejects an already-consumed invite with bad_request and writes nothing', async () => {
     const rec = newRecord();
     const service = new InviteAcceptanceService(
       fakeDb(rec, { invite: freshInvite({ acceptedAt: new Date() }) }),
-      jwt,
+      session,
     );
 
     await expect(service.acceptInvite(mintToken(), 'somePassword123', undefined)).rejects.toMatchObject({
@@ -461,7 +466,7 @@ describe('InviteAcceptanceService.acceptInvite — invalid invite states', () =>
 
   it('rejects a nonexistent invite id with bad_request and writes nothing', async () => {
     const rec = newRecord();
-    const service = new InviteAcceptanceService(fakeDb(rec, { invite: undefined }), jwt);
+    const service = new InviteAcceptanceService(fakeDb(rec, { invite: undefined }), session);
 
     await expect(service.acceptInvite(mintToken(), 'somePassword123', undefined)).rejects.toMatchObject({
       code: 'bad_request',
@@ -473,7 +478,7 @@ describe('InviteAcceptanceService.acceptInvite — invalid invite states', () =>
 
   it('rejects a tampered token with the same generic bad_request and writes nothing', async () => {
     const rec = newRecord();
-    const service = new InviteAcceptanceService(fakeDb(rec, { invite: freshInvite() }), jwt);
+    const service = new InviteAcceptanceService(fakeDb(rec, { invite: freshInvite() }), session);
 
     const tamperedToken = `${mintToken().slice(0, -2)}zz`;
 
@@ -495,7 +500,7 @@ describe('InviteAcceptanceService.acceptInvite — invalid invite states', () =>
     // the race Fix 1 closes: two accepts can never both proceed past the claim.
     const service = new InviteAcceptanceService(
       fakeDb(rec, { invite: freshInvite({ acceptedAt: new Date() }), existingUser: undefined }),
-      jwt,
+      session,
     );
 
     await expect(service.acceptInvite(mintToken(), 'somePassword123', 'Jane Doe')).rejects.toMatchObject({
@@ -506,7 +511,7 @@ describe('InviteAcceptanceService.acceptInvite — invalid invite states', () =>
     expect(rec.inserted.find((i) => i.table === memberships)).toBeUndefined();
     expect(rec.inserted).toHaveLength(0);
     expect(rec.updated).toHaveLength(0);
-    expect(jwt.sign).not.toHaveBeenCalled();
+    expect(session.issue).not.toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
   });
 });

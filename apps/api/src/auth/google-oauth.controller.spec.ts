@@ -113,7 +113,7 @@ describe('GoogleOAuthController', () => {
   describe('GET /auth/google', () => {
     it('redirects to login with oauth_error=google_unavailable when not configured', async () => {
       seedTestEnv(false);
-      const { service } = fakeAuthService({ accessToken: 'unused' });
+      const { service } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -124,7 +124,7 @@ describe('GoogleOAuthController', () => {
 
     it('redirects to the Google consent screen with a signed state when configured', async () => {
       seedTestEnv(true);
-      const { service } = fakeAuthService({ accessToken: 'unused' });
+      const { service } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -146,7 +146,7 @@ describe('GoogleOAuthController', () => {
     it('rejects a missing state, redirects oauth_error=google_failed, and never calls fetch', async () => {
       seedTestEnv(true);
       const fetchSpy = stubGoogleFetch({});
-      const { service, calls } = fakeAuthService({ accessToken: 'unused' });
+      const { service, calls } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -160,7 +160,7 @@ describe('GoogleOAuthController', () => {
     it('rejects a tampered state, redirects oauth_error=google_failed, and never calls fetch', async () => {
       seedTestEnv(true);
       const fetchSpy = stubGoogleFetch({});
-      const { service, calls } = fakeAuthService({ accessToken: 'unused' });
+      const { service, calls } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -177,7 +177,7 @@ describe('GoogleOAuthController', () => {
     it('rejects a state signed under a different secret, and never calls fetch', async () => {
       seedTestEnv(true);
       const fetchSpy = stubGoogleFetch({});
-      const { service, calls } = fakeAuthService({ accessToken: 'unused' });
+      const { service, calls } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -199,7 +199,10 @@ describe('GoogleOAuthController', () => {
         accessToken: 'ga-token-123',
         profile: { sub: 'g-1', email: 'Ava@Biz.CO', email_verified: true, name: 'Ava Chen' },
       });
-      const { service, calls } = fakeAuthService({ accessToken: 'signed.jwt.token' });
+      const { service, calls } = fakeAuthService({
+        accessToken: 'signed.jwt.token',
+        refreshToken: 'signed.refresh.token',
+      });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -209,9 +212,12 @@ describe('GoogleOAuthController', () => {
       // Profile is passed through as-is (AuthService normalizes/lowercases the email).
       expect(calls).toEqual([{ email: 'Ava@Biz.CO', emailVerified: true, name: 'Ava Chen' }]);
 
-      expect(redirectedTo).toEqual([`${TEST_APP_URL}/auth/callback#token=signed.jwt.token`]);
-      // Never a query param anywhere in the redirect target.
+      // Both tokens ride the URL FRAGMENT (never a query param).
+      expect(redirectedTo).toEqual([
+        `${TEST_APP_URL}/auth/callback#token=signed.jwt.token&refresh=signed.refresh.token`,
+      ]);
       expect(redirectedTo[0]).not.toContain('?token=');
+      expect(redirectedTo[0]).not.toContain('?refresh=');
       expect(redirectedTo[0]).not.toContain('&token=');
     });
 
@@ -232,7 +238,7 @@ describe('GoogleOAuthController', () => {
     it('treats a provider error (consent denied) as a failure without calling fetch', async () => {
       seedTestEnv(true);
       const fetchSpy = stubGoogleFetch({});
-      const { service, calls } = fakeAuthService({ accessToken: 'unused' });
+      const { service, calls } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -247,7 +253,7 @@ describe('GoogleOAuthController', () => {
     it('redirects oauth_error=google_failed and never calls AuthService when the token exchange fails', async () => {
       seedTestEnv(true);
       stubGoogleFetch({ tokenOk: false });
-      const { service, calls } = fakeAuthService({ accessToken: 'unused' });
+      const { service, calls } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 
@@ -261,7 +267,7 @@ describe('GoogleOAuthController', () => {
     it('never leaks error details into the redirect target', async () => {
       seedTestEnv(true);
       stubGoogleFetch({ profileOk: false });
-      const { service } = fakeAuthService({ accessToken: 'unused' });
+      const { service } = fakeAuthService({ accessToken: 'unused', refreshToken: 'unused' });
       const controller = new GoogleOAuthController(service);
       const { res, redirectedTo } = fakeResponse();
 

@@ -4,7 +4,7 @@ import type { Response } from 'express';
 import { loadEnv, type Env } from '@brandpilot/config';
 import { AppError, resilientFetch } from '@brandpilot/core';
 import { logger } from '@brandpilot/observability';
-import { AuthService } from './auth.service';
+import { AuthService, type AuthResult } from './auth.service';
 import { Public } from './public.decorator';
 import { createNonceState, verifyNonceState } from '../common/oauth-state';
 
@@ -119,7 +119,7 @@ export class GoogleOAuthController {
         return;
       }
 
-      this.redirectToAppCallback(res, env, result.accessToken);
+      this.redirectToAppCallback(res, env, result);
     } catch (err) {
       // Never surface raw JSON/stack to the browser mid-OAuth — log + land the
       // user back on login with a generic, non-leaking error state (mirrors
@@ -173,16 +173,20 @@ export class GoogleOAuthController {
   }
 
   /**
-   * Hand the freshly-issued access token to the web app via the URL FRAGMENT,
-   * never a query param: a fragment is never sent to any server (ours or a
-   * proxy's), never appears in access/proxy logs, and never leaks through the
-   * `Referer` header of a subsequent navigation — unlike a query string, all of
-   * which would otherwise expose a live bearer token. This client-side hand-off
-   * (`/auth/callback`) exists because the API is cross-origin from the web app
-   * and so cannot set the web app's token cookie directly.
+   * Hand the freshly-issued access + refresh tokens to the web app via the URL
+   * FRAGMENT, never a query param: a fragment is never sent to any server (ours
+   * or a proxy's), never appears in access/proxy logs, and never leaks through
+   * the `Referer` header of a subsequent navigation — unlike a query string, all
+   * of which would otherwise expose live bearer credentials. This client-side
+   * hand-off (`/auth/callback`) exists because the API is cross-origin from the
+   * web app and so cannot set the web app's token cookie directly.
    */
-  private redirectToAppCallback(res: Response, env: Pick<Env, 'APP_URL'>, token: string): void {
+  private redirectToAppCallback(res: Response, env: Pick<Env, 'APP_URL'>, result: AuthResult): void {
     const appUrl = env.APP_URL.replace(/\/+$/, '');
-    res.redirect(`${appUrl}/auth/callback#token=${encodeURIComponent(token)}`);
+    const fragment = new URLSearchParams({
+      token: result.accessToken,
+      refresh: result.refreshToken,
+    }).toString();
+    res.redirect(`${appUrl}/auth/callback#${fragment}`);
   }
 }

@@ -61,6 +61,12 @@ async function bootstrap(): Promise<void> {
     rawBody: true,
   });
 
+  // Behind Railway's reverse proxy: trust the first hop so `req.ip` reflects the
+  // real client (from X-Forwarded-For) rather than the proxy. Without this,
+  // @nestjs/throttler keys every request on the shared proxy address, collapsing
+  // all per-client rate limits (login, refresh, …) into one global bucket.
+  app.set('trust proxy', 1);
+
   const corsOrigin = assertCorsOrigin(env.APP_URL);
   app.enableCors({ origin: corsOrigin, credentials: true });
 

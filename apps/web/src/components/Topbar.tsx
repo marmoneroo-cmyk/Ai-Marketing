@@ -28,8 +28,8 @@ export function Topbar({
     .join("")
     .toUpperCase();
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push("/login");
   }
 

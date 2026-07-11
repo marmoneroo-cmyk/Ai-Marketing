@@ -48,11 +48,16 @@ export interface Paginated<T> {
 
 export interface LoginResult {
   /**
-   * Bearer JWT. Matches the API's `{ accessToken }` auth response EXACTLY — the
-   * web must read `accessToken`; the API never sends a `token`/`user` shape, so
+   * Short-lived bearer JWT. Matches the API's auth response EXACTLY — the web
+   * must read `accessToken`; the API never sends a `token`/`user` shape, so
    * reading `.token` silently persisted `"undefined"` and broke real login.
    */
   accessToken: string;
+  /**
+   * Long-lived, rotating refresh token used to silently obtain a new access
+   * token (see /auth/refresh). Persisted client-side only, never sent to SSR.
+   */
+  refreshToken: string;
 }
 
 export interface KpiSummary {

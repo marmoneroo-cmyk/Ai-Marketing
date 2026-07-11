@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { and, eq, gte, isNull } from 'drizzle-orm';
 import {
@@ -15,7 +14,7 @@ import { loadEnv } from '@brandpilot/config';
 import { logger } from '@brandpilot/observability';
 import { DATABASE } from '../db/db.provider';
 import { readInviteToken } from '../common/invite-token';
-import type { JwtPayload } from './jwt.strategy';
+import { SessionService, type AuthResult } from './session.service';
 
 /** The generic, non-distinguishing error for any invalid/expired/tampered invite. */
 const INVALID_INVITE_MESSAGE = 'This invite is invalid or has expired.';
@@ -28,9 +27,7 @@ export interface InvitePreview {
   needsPassword: boolean;
 }
 
-export interface AcceptInviteResult {
-  accessToken: string;
-}
+export type AcceptInviteResult = AuthResult;
 
 /** Validated, still-pending invite row shape used internally between the fetch and mutate steps. */
 interface PendingInvite {
@@ -57,7 +54,7 @@ interface PendingInvite {
 export class InviteAcceptanceService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
-    private readonly jwt: JwtService,
+    private readonly session: SessionService,
   ) {}
 
   /** Resolve a raw invite token to what the accept screen needs to render, without consuming it. */
@@ -186,9 +183,7 @@ export class InviteAcceptanceService {
       },
     );
 
-    const result: AcceptInviteResult = {
-      accessToken: this.jwt.sign({ sub: userId, orgId, role } satisfies JwtPayload),
-    };
+    const result = await this.session.issue({ sub: userId, orgId, role });
 
     // ids only — never the raw token or password.
     logger.info({ orgId, inviteId, userId, invitedByUserId, newUser: isNewUser }, 'invite accepted');

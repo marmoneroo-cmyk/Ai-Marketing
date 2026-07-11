@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthHero, BrandWordmark } from "@/components/auth-hero";
 import { GoogleAuthButton } from "@/components/google-auth-button";
-import { clearToken, login } from "@/lib/api";
+import { clearToken, login, refreshSession } from "@/lib/api";
 import { DEMO_MODE } from "@/lib/env";
 import type { AppRoutes } from "@/lib/routes";
 
@@ -56,13 +56,26 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // A session that expired mid-use bounces here with ?session=expired; clear any
-  // dead token so a stale value can't linger in localStorage or the mirror
-  // cookie and re-trigger the loop on the next navigation.
+  // A session that expired mid-use bounces here with ?session=expired. Before
+  // showing the form, try to silently restore the session from the refresh
+  // token (this is what lets a hard navigation with an expired access token
+  // recover without a re-login). Only if that fails do we clear any dead token
+  // and let the user sign in again.
   const sessionExpired = searchParams.get("session") === "expired";
   useEffect(() => {
-    if (sessionExpired) clearToken();
-  }, [sessionExpired]);
+    if (!sessionExpired) return;
+    let cancelled = false;
+    void (async () => {
+      if (await refreshSession()) {
+        if (!cancelled) router.replace(resolveNext(searchParams.get("next")));
+      } else {
+        clearToken();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionExpired, router, searchParams]);
 
   // A submit-time error takes priority over a stale oauth_error or the
   // session-expired notice left over from an earlier redirect; only one alert is

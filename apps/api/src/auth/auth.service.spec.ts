@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { JwtService } from '@nestjs/jwt';
+import type { SessionService } from './session.service';
 import { AppError } from '@brandpilot/core';
 import { organizations, users, memberships, type Database } from '@brandpilot/db';
 
@@ -50,7 +50,12 @@ function fakeDb(rec: Recorded, existingUser?: unknown): Database {
   } as unknown as Database;
 }
 
-const jwt = { sign: () => 'signed.jwt.token' } as unknown as JwtService;
+const session = {
+  issue: vi.fn(async () => ({
+    accessToken: 'signed.jwt.token',
+    refreshToken: 'signed.refresh.token',
+  })),
+} as unknown as SessionService;
 
 function newRecord(): Recorded {
   return { transactions: 0, inserted: [] };
@@ -63,7 +68,7 @@ describe('AuthService.register', () => {
 
   it('provisions org + owner user + membership atomically in one transaction', async () => {
     const rec = newRecord();
-    const service = new AuthService(fakeDb(rec), jwt);
+    const service = new AuthService(fakeDb(rec), session);
 
     const result = await service.register({
       email: 'A@Biz.CO',
@@ -101,7 +106,7 @@ describe('AuthService.register', () => {
 
   it('rejects a duplicate email before opening a transaction', async () => {
     const rec = newRecord();
-    const service = new AuthService(fakeDb(rec, { id: 'existing-user' }), jwt);
+    const service = new AuthService(fakeDb(rec, { id: 'existing-user' }), session);
 
     try {
       await service.register({ email: 'taken@biz.co', password: 'pw-123', orgName: 'Biz' });
@@ -196,7 +201,7 @@ describe('AuthService.loginOrRegisterViaGoogle', () => {
 
   it('provisions a new org + user (authProvider "google", passwordHash null, emailVerifiedAt set) and returns a token for a brand-new email', async () => {
     const rec = newGoogleRecord();
-    const service = new AuthService(fakeGoogleDb(rec, undefined), jwt);
+    const service = new AuthService(fakeGoogleDb(rec, undefined), session);
 
     const result = await service.loginOrRegisterViaGoogle({
       email: 'New@Biz.CO',
@@ -231,7 +236,7 @@ describe('AuthService.loginOrRegisterViaGoogle', () => {
 
   it('leaves emailVerifiedAt null when Google reports the email as unverified, and defaults the org name from the email when no name is given', async () => {
     const rec = newGoogleRecord();
-    const service = new AuthService(fakeGoogleDb(rec, undefined), jwt);
+    const service = new AuthService(fakeGoogleDb(rec, undefined), session);
 
     await service.loginOrRegisterViaGoogle({ email: 'unverified@biz.co', emailVerified: false });
 
@@ -245,7 +250,7 @@ describe('AuthService.loginOrRegisterViaGoogle', () => {
     const rec = newGoogleRecord();
     const service = new AuthService(
       fakeGoogleDb(rec, { id: 'existing-1', authProvider: 'google' }, { orgId: 'org-9', role: 'owner' }),
-      jwt,
+      session,
     );
 
     const result = await service.loginOrRegisterViaGoogle({
@@ -264,7 +269,7 @@ describe('AuthService.loginOrRegisterViaGoogle', () => {
     const rec = newGoogleRecord();
     const service = new AuthService(
       fakeGoogleDb(rec, { id: 'existing-2', authProvider: 'password' }),
-      jwt,
+      session,
     );
 
     const result = await service.loginOrRegisterViaGoogle({
@@ -283,7 +288,7 @@ describe('AuthService.loginOrRegisterViaGoogle', () => {
     const rec = newGoogleRecord();
     const service = new AuthService(
       fakeGoogleDb(rec, { id: 'existing-3', authProvider: null }),
-      jwt,
+      session,
     );
 
     const result = await service.loginOrRegisterViaGoogle({

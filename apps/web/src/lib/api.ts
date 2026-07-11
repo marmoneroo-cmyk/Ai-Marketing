@@ -48,6 +48,7 @@ import {
 } from "./mock";
 
 const TOKEN_KEY = "brandpilot_token";
+const REFRESH_TOKEN_KEY = "brandpilot_refresh";
 const REQUEST_TIMEOUT_MS = 8000;
 
 /** Defaults for paginated list requests (mirror the API's paginationSchema). */
@@ -89,10 +90,38 @@ export function setToken(token: string): void {
   }
 }
 
+/** The refresh token used to silently obtain a new access token. Client-only. */
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist a full session: the short-lived access token (mirrored to a cookie for
+ * SSR, see setToken) plus the long-lived refresh token. The refresh token lives
+ * in localStorage only — never in a cookie and never sent to SSR — so it isn't
+ * exposed to the server render or carried on every request.
+ */
+export function setSession(accessToken: string, refreshToken?: string): void {
+  setToken(accessToken);
+  if (refreshToken && typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    } catch {
+      // Storage may be unavailable (private mode); ignore.
+    }
+  }
+}
+
 export function clearToken(): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
     document.cookie = `${TOKEN_KEY}=; path=/; max-age=0; SameSite=Lax`;
   } catch {
     // ignore
@@ -132,6 +161,8 @@ interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
   auth?: boolean;
+  /** Internal: set on the single retry after a silent token refresh, to avoid looping. */
+  retry?: boolean;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -165,12 +196,56 @@ async function handleSessionExpiry(): Promise<void> {
   redirect(SESSION_EXPIRED_PATH);
 }
 
+let inFlightRefresh: Promise<boolean> | null = null;
+
+/**
+ * Silently obtain a new access token from the stored refresh token, shared so
+ * concurrent 401s trigger a single refresh round-trip. Returns false during SSR
+ * (the refresh token lives in localStorage, unreachable on the server) or when
+ * none is stored. On success, both tokens are rotated in storage.
+ */
+export async function refreshSession(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  if (!inFlightRefresh) {
+    inFlightRefresh = doRefresh(refreshToken).finally(() => {
+      inFlightRefresh = null;
+    });
+  }
+  return inFlightRefresh;
+}
+
+async function doRefresh(refreshToken: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | ApiResponse<LoginResult>
+      | null;
+    if (response.ok && payload?.success === true && payload.data?.accessToken) {
+      setSession(payload.data.accessToken, payload.data.refreshToken);
+      return true;
+    }
+  } catch {
+    // fall through to the concurrent-refresh check
+  }
+  // Our refresh didn't succeed — but if ANOTHER tab rotated the token first,
+  // storage now holds a newer one. Adopt it (the retried request picks up the
+  // fresh access token) instead of forcing a logout over a benign multi-tab race.
+  const current = getRefreshToken();
+  return current !== null && current !== refreshToken;
+}
+
 /**
  * Perform a request and return the unwrapped `data` payload.
  * Throws on non-2xx, network failure, or `success: false`.
  */
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, auth = true } = options;
+  const { method = "GET", body, auth = true, retry = false } = options;
 
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -197,11 +272,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       .catch(() => null)) as ApiResponse<T> | null;
 
     if (!response.ok || !payload || payload.success !== true) {
-      // A 401 on an authenticated request means the session token is expired or
-      // invalid: on the client, clear it and redirect to a clean login; during
-      // SSR, unwind the render to /login (see handleSessionExpiry) instead of
-      // throwing — an unhandled throw here renders as a full-page crash.
+      // A 401 on an authenticated request means the access token expired. Try a
+      // one-shot silent refresh and replay the request; only if that fails is the
+      // session truly over — clear it and redirect to a clean login (client), or
+      // unwind the SSR render (see handleSessionExpiry) instead of throwing.
       if (auth && response.status === 401) {
+        if (!retry && (await refreshSession())) {
+          return request<T>(path, { ...options, retry: true });
+        }
         await handleSessionExpiry();
       }
       const message =
@@ -245,7 +323,7 @@ export async function login(
       body: { email, password },
       auth: false,
     });
-    setToken(result.accessToken);
+    setSession(result.accessToken, result.refreshToken);
     return result;
   } catch (error: unknown) {
     const message = getErrorMessage(error);
@@ -254,7 +332,7 @@ export async function login(
       throw new Error("Invalid email or password.");
     }
     if (DEMO_MODE) {
-      setToken(mockLogin.accessToken);
+      setSession(mockLogin.accessToken, mockLogin.refreshToken);
       return mockLogin;
     }
     throw new Error(
@@ -282,7 +360,7 @@ export async function register(input: {
       body: input,
       auth: false,
     });
-    setToken(result.accessToken);
+    setSession(result.accessToken, result.refreshToken);
     return result;
   } catch (error: unknown) {
     const message = getErrorMessage(error);
@@ -291,7 +369,7 @@ export async function register(input: {
       throw new Error(message);
     }
     if (DEMO_MODE) {
-      setToken(mockLogin.accessToken);
+      setSession(mockLogin.accessToken, mockLogin.refreshToken);
       return mockLogin;
     }
     throw new Error(
@@ -300,7 +378,23 @@ export async function register(input: {
   }
 }
 
-export function logout(): void {
+/**
+ * Sign out: revoke the refresh token server-side (best-effort — a network
+ * failure must not block local logout), then clear all local session state.
+ */
+export async function logout(): Promise<void> {
+  const refreshToken = getRefreshToken();
+  if (refreshToken) {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch {
+      // Best-effort revoke; local logout proceeds regardless.
+    }
+  }
   clearToken();
 }
 

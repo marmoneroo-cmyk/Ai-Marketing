@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { and, eq } from 'drizzle-orm';
 import {
@@ -13,7 +12,9 @@ import {
 import { AppError, type Role } from '@brandpilot/core';
 import { logger } from '@brandpilot/observability';
 import { DATABASE } from '../db/db.provider';
-import type { JwtPayload } from './jwt.strategy';
+import { SessionService, type AuthResult } from './session.service';
+
+export type { AuthResult };
 
 /**
  * A real argon2id hash of a random throwaway value, using argon2's default
@@ -39,10 +40,6 @@ export interface LoginInput {
   orgId?: string;
 }
 
-export interface AuthResult {
-  accessToken: string;
-}
-
 export interface GoogleLoginInput {
   email: string;
   emailVerified: boolean;
@@ -61,7 +58,7 @@ export type GoogleAuthOutcome = AuthResult | { error: 'email_registered' };
 export class AuthService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
-    private readonly jwt: JwtService,
+    private readonly session: SessionService,
   ) {}
 
   /** Create an org + owner user, returning an access token scoped to that org. */
@@ -101,7 +98,7 @@ export class AuthService {
       return user.id;
     });
 
-    const result = this.issueToken({ sub: userId, orgId, role });
+    const result = await this.session.issue({ sub: userId, orgId, role });
     logger.info({ orgId, userId }, 'organization registered');
     return result;
   }
@@ -137,7 +134,7 @@ export class AuthService {
 
     await this.db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
-    return this.issueToken({ sub: user.id, orgId: membership.orgId, role: membership.role });
+    return this.session.issue({ sub: user.id, orgId: membership.orgId, role: membership.role });
   }
 
   /**
@@ -180,7 +177,7 @@ export class AuthService {
         .set({ lastLoginAt: new Date() })
         .where(eq(users.id, existing.id));
 
-      return this.issueToken({ sub: existing.id, orgId: membership.orgId, role: membership.role });
+      return this.session.issue({ sub: existing.id, orgId: membership.orgId, role: membership.role });
     }
 
     // New user: provision org + user + membership atomically, mirroring
@@ -213,13 +210,9 @@ export class AuthService {
       return user.id;
     });
 
-    const result = this.issueToken({ sub: userId, orgId, role });
+    const result = await this.session.issue({ sub: userId, orgId, role });
     logger.info({ orgId, userId }, 'registered via google');
     return result;
-  }
-
-  private issueToken(payload: JwtPayload): AuthResult {
-    return { accessToken: this.jwt.sign(payload) };
   }
 
   private slugify(name: string): string {

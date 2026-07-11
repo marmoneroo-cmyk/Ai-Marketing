@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { AuthHero, BrandWordmark } from "@/components/auth-hero";
-import { setToken } from "@/lib/api";
+import { setSession } from "@/lib/api";
 
 /**
  * Landing page for the "Continue with Google" hand-off. The API redirects
@@ -29,9 +29,11 @@ function CallbackGate() {
     if (hasStartedRef.current) return;
     hasStartedRef.current = true;
 
-    const token = new URLSearchParams(window.location.hash.slice(1)).get("token");
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const token = params.get("token");
+    const refresh = params.get("refresh");
     if (token) {
-      setToken(token);
+      setSession(token, refresh ?? undefined);
       router.replace("/onboarding");
     } else {
       router.replace("/login?oauth_error=google_failed");

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ok, passwordSchema, type ApiResponse } from '@brandpilot/core';
 import { logger } from '@brandpilot/observability';
 import { AuthService, type AuthResult } from './auth.service';
+import { SessionService } from './session.service';
 import { PasswordResetService } from './password-reset.service';
 import { EmailVerificationService } from './email-verification.service';
 import { InviteAcceptanceService, type InvitePreview, type AcceptInviteResult } from './invite-acceptance.service';
@@ -27,6 +28,18 @@ const loginSchema = z.object({
   orgId: z.string().uuid().optional(),
 });
 class LoginBody extends zodSchemaClass(loginSchema) {}
+
+// A refresh token is base64url(32 bytes) ≈ 43 chars; cap generously so the
+// public, rate-limited endpoints reject oversized bodies before hashing.
+const refreshSchema = z.object({
+  refreshToken: z.string().min(1).max(512),
+});
+class RefreshBody extends zodSchemaClass(refreshSchema) {}
+
+const logoutSchema = z.object({
+  refreshToken: z.string().min(1).max(512),
+});
+class LogoutBody extends zodSchemaClass(logoutSchema) {}
 
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
@@ -63,6 +76,7 @@ class AcceptInviteBody extends zodSchemaClass(acceptInviteSchema) {}
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly sessionService: SessionService,
     private readonly passwordResetService: PasswordResetService,
     private readonly emailVerificationService: EmailVerificationService,
     private readonly inviteAcceptanceService: InviteAcceptanceService,
@@ -97,6 +111,26 @@ export class AuthController {
   async login(@Body() body: LoginBody): Promise<ApiResponse<AuthResult>> {
     const result = await this.authService.login(body);
     return ok(result);
+  }
+
+  @Post('refresh')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  @ApiOperation({ summary: 'Exchange a refresh token for a new access + refresh token pair' })
+  async refresh(@Body() body: RefreshBody): Promise<ApiResponse<AuthResult>> {
+    const result = await this.sessionService.rotate(body.refreshToken);
+    return ok(result);
+  }
+
+  @Post('logout')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  @ApiOperation({ summary: 'Revoke a refresh token (sign out)' })
+  async logout(@Body() body: LogoutBody): Promise<ApiResponse<{ ok: true }>> {
+    await this.sessionService.revoke(body.refreshToken);
+    return ok({ ok: true });
   }
 
   @Post('forgot-password')

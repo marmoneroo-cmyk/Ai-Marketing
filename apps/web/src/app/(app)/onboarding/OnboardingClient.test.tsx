@@ -9,6 +9,11 @@ vi.mock("@/lib/api", () => ({
   getDna: vi.fn(),
   hasOAuthStart: vi.fn(),
   startConnect: vi.fn(),
+  getConnectorAvailability: vi.fn(async () => ({
+    instagram: true,
+    facebook: true,
+    tiktok: true,
+  })),
 }));
 
 const ONE_CONNECTED: ConnectedChannel[] = [
