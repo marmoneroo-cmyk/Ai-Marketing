@@ -108,6 +108,30 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
     };
   }, []);
 
+  // Rehydrate any Business DNA the org already built, so a returning user sees
+  // their saved analysis (and a dashboard CTA) instead of a blank form that
+  // looks like nothing was ever saved — and never re-enters the same URL.
+  useEffect(() => {
+    let cancelled = false;
+    getDna()
+      .then((result) => {
+        const populated =
+          result.profile !== null &&
+          ((result.profile.description ?? "").length > 0 ||
+            (result.profile.categories?.length ?? 0) > 0);
+        if (!cancelled && populated) {
+          setDna(result);
+          setStatus("ready");
+        }
+      })
+      .catch(() => {
+        /* no saved DNA yet, or fetch failed → leave the fresh form */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const canStart = websiteUrl.trim().length > 0 && status !== "running";
 
   async function start(): Promise<void> {
@@ -243,6 +267,15 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {dna?.profile && status !== "running" && (
+            <p className="mb-3 text-sm text-muted">
+              <span className="font-medium text-foreground">
+                ✓ Your Business DNA is already built
+              </span>{" "}
+              — it&apos;s shown below and saved. Re-run only to refresh it after
+              your site changes.
+            </p>
+          )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
             <Input
               type="url"
@@ -258,7 +291,11 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
               disabled={!canStart}
               className="shrink-0"
             >
-              {status === "running" ? "Analyzing…" : "Build my Business DNA"}
+              {status === "running"
+                ? "Analyzing…"
+                : dna?.profile
+                  ? "Re-analyze"
+                  : "Build my Business DNA"}
             </Button>
           </div>
           {message.length > 0 && (
