@@ -100,6 +100,29 @@ export function isAuthenticated(): boolean {
   return getToken() !== null;
 }
 
+/**
+ * Resolve the bearer token for a request. On the client this is the
+ * localStorage value. During server rendering `window` is undefined and
+ * localStorage is unreachable, so fall back to the non-HttpOnly cookie the
+ * client mirrors on login (see setToken), read via next/headers — imported
+ * dynamically inside the server-only guard so it never enters the client
+ * bundle. Without this, every authenticated Server Component (e.g. the (app)
+ * layout's getOrgProfile) sends no Authorization header and the API 401s
+ * during SSR, crashing the page.
+ */
+async function resolveToken(): Promise<string | null> {
+  const clientToken = getToken();
+  if (clientToken) return clientToken;
+  if (typeof window !== "undefined") return null;
+  try {
+    const { cookies } = await import("next/headers");
+    const store = await cookies();
+    return store.get(TOKEN_KEY)?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Core request helper ─────────────────────────────────────────────────
 
 interface RequestOptions {
@@ -124,7 +147,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   if (auth) {
-    const token = getToken();
+    const token = await resolveToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
