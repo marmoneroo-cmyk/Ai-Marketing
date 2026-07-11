@@ -83,7 +83,8 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup('docs', app, document);
   }
 
-  const port = resolvePort(env.API_URL);
+  // Railway and most PaaS inject the port to bind via $PORT; fall back to API_URL locally.
+  const port = process.env.PORT ? Number(process.env.PORT) : resolvePort(env.API_URL);
   await app.listen(port);
   logger.info({ port }, 'BrandPilot API listening');
 }
