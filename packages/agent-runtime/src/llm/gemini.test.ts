@@ -20,9 +20,9 @@ afterEach(() => {
 
 describe('toGeminiModel', () => {
   it('maps Claude tiers to Gemini models; passes gemini names through', () => {
-    expect(toGeminiModel('claude-haiku-4-5-20251001')).toBe('gemini-2.0-flash-lite');
-    expect(toGeminiModel('claude-sonnet-5')).toBe('gemini-2.0-flash');
-    expect(toGeminiModel('claude-opus-4-8')).toBe('gemini-2.0-flash');
+    expect(toGeminiModel('claude-haiku-4-5-20251001')).toBe('gemini-2.5-flash-lite');
+    expect(toGeminiModel('claude-sonnet-5')).toBe('gemini-2.5-flash');
+    expect(toGeminiModel('claude-opus-4-8')).toBe('gemini-2.5-flash');
     expect(toGeminiModel('gemini-1.5-pro')).toBe('gemini-1.5-pro');
   });
 });
@@ -58,7 +58,7 @@ describe('GeminiLlmClient.complete', () => {
 
     const cap = captured as unknown as { url: string; init?: RequestInit };
     // URL uses the mapped model; key rides a header, never the URL.
-    expect(cap.url).toContain('/models/gemini-2.0-flash:generateContent');
+    expect(cap.url).toContain('/models/gemini-2.5-flash:generateContent');
     expect(cap.url).not.toContain('gk-test');
     const headers = cap.init?.headers as Record<string, string>;
     expect(headers['x-goog-api-key']).toBe('gk-test');

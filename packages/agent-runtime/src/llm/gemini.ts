@@ -21,9 +21,10 @@ interface GeminiResponse {
 export function toGeminiModel(model: string): string {
   if (model.startsWith('gemini')) return model;
   const m = model.toLowerCase();
-  // Cheap/fast classification tier -> flash-lite; reasoning + generation -> flash.
-  if (m.includes('haiku')) return 'gemini-2.0-flash-lite';
-  return 'gemini-2.0-flash';
+  // Gemini 2.5 tier (2.0-flash has no free-tier quota on current keys; 2.5 does).
+  // Cheap/fast classification -> flash-lite; reasoning + generation -> flash.
+  if (m.includes('haiku')) return 'gemini-2.5-flash-lite';
+  return 'gemini-2.5-flash';
 }
 
 /** Merge the split system prompt into a single Gemini systemInstruction. */
