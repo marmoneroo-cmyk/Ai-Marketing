@@ -1,0 +1,38 @@
+import { Worker, type Job } from 'bullmq';
+import type IORedis from 'ioredis';
+import { QUEUES, type ReindexJobData, type AnalyticsJobData } from '@brandpilot/core';
+import type { WorkerContext } from '../context';
+
+/**
+ * Continuous learning: recompute derived intelligence (voice, patterns, audience)
+ * AND index the owner's approved FAQs/policies/objection-rebuttals into the
+ * semantic pool so customer-facing replies ground on their curated answers.
+ */
+export function createReindexWorker(ctx: WorkerContext, connection: IORedis): Worker<ReindexJobData> {
+  return new Worker<ReindexJobData>(
+    QUEUES.brainReindex,
+    async (job: Job<ReindexJobData>) => {
+      const { orgId } = job.data;
+      await ctx.brand.computeVoiceProfile(orgId);
+      await ctx.brand.analyzePerformance(orgId);
+      await ctx.audience.buildPersonasAndSegments(orgId);
+      await ctx.brain.indexApprovedKnowledge(orgId);
+      return { ok: true };
+    },
+    { connection, concurrency: 2 },
+  );
+}
+
+/** Continuous improvement: daily KPI rollup + optimization recommendations. */
+export function createAnalyticsWorker(ctx: WorkerContext, connection: IORedis): Worker<AnalyticsJobData> {
+  return new Worker<AnalyticsJobData>(
+    QUEUES.analyticsRollup,
+    async (job: Job<AnalyticsJobData>) => {
+      const { orgId } = job.data;
+      await ctx.analytics.rollupDaily(orgId, new Date());
+      await ctx.optimization.analyze(orgId);
+      return { ok: true };
+    },
+    { connection, concurrency: 2 },
+  );
+}

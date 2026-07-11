@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "social_accounts_org_status_idx" ON "social_accounts" USING btree ("org_id","status");

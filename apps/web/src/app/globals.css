@@ -1,0 +1,302 @@
+@import "tailwindcss";
+
+/* Dark mode is driven by a `.dark` class on <html> (toggle + no-flash script in
+   layout.tsx). This custom variant lets `dark:` utilities respond to that class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────────────────────────
+   BrandPilot design tokens
+
+   Colors are exposed to Tailwind as semantic tokens (background / surface /
+   foreground / muted / border / brand …) so components never hardcode a raw
+   zinc/indigo value. Each token is a CSS variable with a light default in
+   :root and a dark override in .dark, which keeps every `bg-surface`,
+   `text-foreground`, etc. theme-aware automatically.
+   ───────────────────────────────────────────────────────────────────────── */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Brand ramp (indigo/violet). Stable across themes. */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+  --color-brand-950: #1e1b4b;
+
+  /* Semantic surface/text tokens — resolved from the CSS variables below so
+     they flip with the active theme. */
+  --color-background: var(--bp-background);
+  --color-surface: var(--bp-surface);
+  --color-surface-muted: var(--bp-surface-muted);
+  --color-elevated: var(--bp-elevated);
+  --color-foreground: var(--bp-foreground);
+  --color-muted: var(--bp-muted);
+  --color-subtle: var(--bp-subtle);
+  --color-border: var(--bp-border);
+  --color-border-strong: var(--bp-border-strong);
+  --color-ring: var(--bp-ring);
+  --color-brand-surface: var(--bp-brand-surface);
+  --color-brand-fg: var(--bp-brand-fg);
+
+  /* Radius scale — a small, deliberate set. `lg` for inner chips/controls,
+     `xl` for buttons/inputs/inner tiles, `2xl` for cards/containers. */
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  /* Type scale — Tailwind's defaults (xs..2xl) cover most of the UI; this adds
+     the one smaller step used for eyebrow/meta labels so components stop
+     reaching for arbitrary `text-[0.6875rem]` values. */
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-2xs--line-height: 1rem;
+
+  /* Motion tokens — shared durations/easing so enter animations and hover
+     micro-interactions stay consistent instead of drifting per component. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 150ms;
+  --duration-medium: 260ms;
+}
+
+/* Light theme (default) */
+:root {
+  --bp-background: #fafafa;
+  --bp-surface: #ffffff;
+  --bp-surface-muted: #fafafa;
+  --bp-elevated: #ffffff;
+  --bp-foreground: #18181b; /* zinc-900 */
+  --bp-muted: #52525b; /* zinc-600 — AA on surfaces */
+  --bp-subtle: #71717a; /* zinc-500 — smallest allowed muted */
+  --bp-border: #e4e4e7; /* zinc-200 */
+  --bp-border-strong: #d4d4d8; /* zinc-300 */
+  --bp-ring: #6366f1; /* brand-500 */
+  --bp-brand-surface: #eef2ff; /* brand-50 */
+  --bp-brand-fg: #4338ca; /* brand-700 */
+
+  color-scheme: light;
+}
+
+/* Dark theme — applied when <html class="dark"> is set explicitly. */
+.dark {
+  --bp-background: #09090b; /* zinc-950 */
+  --bp-surface: #18181b; /* zinc-900 */
+  --bp-surface-muted: #101012;
+  --bp-elevated: #1f1f23; /* slightly raised */
+  --bp-foreground: #fafafa; /* zinc-50 */
+  --bp-muted: #a1a1aa; /* zinc-400 — AA on dark surfaces */
+  --bp-subtle: #9ca3af;
+  --bp-border: #27272a; /* zinc-800 */
+  --bp-border-strong: #3f3f46; /* zinc-700 */
+  --bp-ring: #818cf8; /* brand-400 */
+  --bp-brand-surface: #1e1b4b; /* brand-950-ish */
+  --bp-brand-fg: #c7d2fe; /* brand-200 */
+
+  color-scheme: dark;
+}
+
+/* Respect OS preference when the user has not made an explicit choice.
+   The no-flash script in layout.tsx only adds `.dark` for an explicit choice
+   or when the OS prefers dark, so this block covers first paint before JS. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bp-background: #09090b;
+    --bp-surface: #18181b;
+    --bp-surface-muted: #101012;
+    --bp-elevated: #1f1f23;
+    --bp-foreground: #fafafa;
+    --bp-muted: #a1a1aa;
+    --bp-subtle: #9ca3af;
+    --bp-border: #27272a;
+    --bp-border-strong: #3f3f46;
+    --bp-ring: #818cf8;
+    --bp-brand-surface: #1e1b4b;
+    --bp-brand-fg: #c7d2fe;
+
+    color-scheme: dark;
+  }
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+/* Subtle app backdrop: a faint indigo wash from the top so cards read as
+   floating on a soft neutral canvas. Slightly stronger in dark mode. */
+.app-canvas {
+  background-image:
+    radial-gradient(60rem 40rem at 100% -10%, rgba(99, 102, 241, 0.06), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 0%, rgba(139, 92, 246, 0.05), transparent 55%);
+}
+.dark .app-canvas {
+  background-image:
+    radial-gradient(60rem 40rem at 100% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 0%, rgba(139, 92, 246, 0.10), transparent 55%);
+}
+
+/* Thin, unobtrusive scrollbars inside scrollable panels. */
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: 9999px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+/* Accessible skip link — visually hidden until focused. */
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  transform: translateY(-150%);
+  transition: transform 150ms ease;
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Motion system
+
+   A small, tasteful set of enter animations and hover micro-interactions,
+   exposed as utility classes so pages/components share one vocabulary instead
+   of hand-rolling transitions. Every *animation* is wrapped in a
+   `prefers-reduced-motion: no-preference` guard so it is fully inert for users
+   who opt out — the content still renders, just without movement. Hover
+   transitions only touch cheap, composited properties (color / background /
+   border / transform / opacity / box-shadow), never `all`.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes bp-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes bp-fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes bp-shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  .animate-in {
+    animation: bp-fade-in-up var(--duration-medium) var(--ease-out-soft) both;
+  }
+
+  .animate-fade {
+    animation: bp-fade-in var(--duration-medium) var(--ease-out-soft) both;
+  }
+
+  /* Cheap stagger: opt rows/tiles into a shared parent and each child leans on
+     its own delay. Kept to a handful of steps so nothing feels sluggish. */
+  .stagger > * {
+    animation: bp-fade-in-up var(--duration-medium) var(--ease-out-soft) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 40ms; }
+  .stagger > *:nth-child(2) { animation-delay: 80ms; }
+  .stagger > *:nth-child(3) { animation-delay: 120ms; }
+  .stagger > *:nth-child(4) { animation-delay: 160ms; }
+  .stagger > *:nth-child(5) { animation-delay: 200ms; }
+  .stagger > *:nth-child(6) { animation-delay: 240ms; }
+  .stagger > *:nth-child(7) { animation-delay: 280ms; }
+  .stagger > *:nth-child(8) { animation-delay: 320ms; }
+
+  /* Shimmer sweep for skeletons — layered over the base fill. */
+  .skeleton-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--color-elevated) 20%,
+      var(--color-elevated) 40%,
+      transparent 60%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: bp-shimmer 1.6s ease-in-out infinite;
+  }
+}
+
+/* ── Shared hover / press micro-interactions ──────────────────────────────
+   Applied via class so cards, sidebar links, table rows and buttons lift the
+   same way. Transitions enumerate specific properties (never `all`) and remain
+   active under reduced-motion — the *transition* is a taste choice, not an
+   animation loop — but movement is minimal (≤1px) and easy on the eyes. */
+
+.interactive {
+  transition-property: color, background-color, border-color, box-shadow,
+    transform, opacity;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-out-soft);
+}
+
+/* Elevated surfaces (cards, stat tiles): a whisper of lift + stronger shadow. */
+.interactive-card {
+  transition-property: color, background-color, border-color, box-shadow,
+    transform;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-out-soft);
+}
+.interactive-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: 0 6px 20px -8px rgb(24 24 27 / 0.12);
+  transform: translateY(-1px);
+}
+.dark .interactive-card:hover {
+  box-shadow: 0 8px 24px -10px rgb(0 0 0 / 0.5);
+}
+
+/* Rows (table rows, list rows): subtle tint, no lift so alignment holds. */
+.interactive-row {
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-out-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Belt-and-suspenders: neutralize the lift for anyone who opts out even
+     though .interactive-card is a transition rather than a keyframe loop. */
+  .interactive-card:hover {
+    transform: none;
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "conversations" ADD CONSTRAINT "conversations_org_channel_thread_uq" UNIQUE("org_id","channel","external_thread_id");

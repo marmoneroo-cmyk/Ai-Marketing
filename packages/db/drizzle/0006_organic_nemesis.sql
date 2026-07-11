@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "conv_msg_org_external_uq" ON "conversation_messages" USING btree ("org_id","external_id") WHERE "conversation_messages"."external_id" IS NOT NULL;

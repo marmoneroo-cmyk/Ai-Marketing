@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "contacts_org_social_uq" ON "contacts" USING btree ("org_id",("handles" ->> 'social')) WHERE "contacts"."handles" ->> 'social' IS NOT NULL;

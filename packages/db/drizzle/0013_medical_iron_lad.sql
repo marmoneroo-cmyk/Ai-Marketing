@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "workflow_runs_workflow_signal_uq" ON "workflow_runs" USING btree ("workflow_id","trigger_signal_id") WHERE "workflow_runs"."trigger_signal_id" is not null;
