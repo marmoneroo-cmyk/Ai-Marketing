@@ -201,6 +201,33 @@ describe('AgentRuntime.run', () => {
     expect(result.model.length).toBeGreaterThan(0);
   });
 
+  it('degrades a caption to an ungrounded draft when retrieval FAILS, but escalates a live answer', async () => {
+    // reply: an embedding-provider outage/rate-limit during retrieval escalates.
+    {
+      const { brain, retrieve } = makeFakeBrain();
+      retrieve.mockRejectedValueOnce(new Error('Voyage embeddings request failed (429)'));
+      const { llm, complete } = makeFakeLlm(envelope('hello'));
+      const runtime = new AgentRuntime({ brain, llm });
+      await expect(runtime.run(baseInput({ task: 'reply' }))).rejects.toMatchObject({
+        code: 'grounding_insufficient',
+      });
+      expect(complete).not.toHaveBeenCalled();
+    }
+
+    // caption: the SAME retrieval failure drafts anyway, ungrounded (no citations)
+    // — this is the real-world case that was failing every variant on Voyage 429.
+    {
+      const { brain, retrieve } = makeFakeBrain();
+      retrieve.mockRejectedValueOnce(new Error('Voyage embeddings request failed (429)'));
+      const { llm, complete } = makeFakeLlm(envelope('Handcrafted dice, limited drop.'));
+      const runtime = new AgentRuntime({ brain, llm });
+      const result = await runtime.run(baseInput({ task: 'caption' }));
+      expect(result.output).toBe('Handcrafted dice, limited drop.');
+      expect(result.citedChunkIds).toEqual([]);
+      expect(complete).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('throws grounding_insufficient when the output trips a guardrail (always-escalate intent)', async () => {
     const { brain } = makeFakeBrain({ confidence: 0.95 });
     // 'refund' is an ALWAYS_ESCALATE_INTENTS keyword → guardrail blocks it.

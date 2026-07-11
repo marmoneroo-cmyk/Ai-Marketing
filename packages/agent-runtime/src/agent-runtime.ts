@@ -84,20 +84,43 @@ export class AgentRuntime {
     let groundingConfidence = 1;
 
     if (input.groundingQuery) {
-      const ctx = await this.brain.retrieve(input.orgId, input.groundingQuery);
-      citedChunkIds = ctx.chunks.map((c) => c.id);
-      groundingConfidence = ctx.confidence;
-      contextBlock = ctx.chunks.map((c, i) => `[[${i + 1}]] (${c.sourceKind}) ${c.content}`).join('\n\n');
+      // Retrieval can FAIL (embedding-provider rate-limit/outage), distinct from
+      // "retrieved but low confidence". For a grounding-REQUIRED live answer both
+      // escalate to a human; for a `caption` (proactive, human-reviewed draft) a
+      // retrieval failure must NOT kill the draft — degrade to ungrounded so an
+      // embedding hiccup never leaves the owner with zero content.
+      let ctx: Awaited<ReturnType<BusinessBrain['retrieve']>> | undefined;
+      try {
+        ctx = await this.brain.retrieve(input.orgId, input.groundingQuery);
+      } catch (err: unknown) {
+        if (groundingRequired) {
+          const detail = err instanceof Error ? err.message : 'retrieval failed';
+          throw groundingInsufficient(
+            `Grounding retrieval failed (${detail}); escalating to a human.`,
+            { task: input.task, orgId: input.orgId },
+          );
+        }
+        ctx = undefined; // caption: proceed ungrounded (guardrails still apply below)
+      }
 
-      // Approved-knowledge-only: a live customer ANSWER without solid grounding
-      // escalates to a human. A `caption` (proactive draft) does NOT escalate —
-      // its low grounding instead flows into a reduced result confidence below,
-      // which routes it to human review before it can ever publish.
-      if (groundingRequired && ctx.confidence < MIN_GROUNDING_CONFIDENCE) {
-        throw groundingInsufficient(
-          `Grounding confidence ${ctx.confidence.toFixed(2)} < ${MIN_GROUNDING_CONFIDENCE}; escalating to a human.`,
-          { task: input.task, orgId: input.orgId },
-        );
+      if (ctx) {
+        citedChunkIds = ctx.chunks.map((c) => c.id);
+        groundingConfidence = ctx.confidence;
+        contextBlock = ctx.chunks.map((c, i) => `[[${i + 1}]] (${c.sourceKind}) ${c.content}`).join('\n\n');
+
+        // Approved-knowledge-only: a live customer ANSWER without solid grounding
+        // escalates to a human. A `caption` (proactive draft) does NOT escalate —
+        // its low grounding instead flows into a reduced result confidence below,
+        // which routes it to human review before it can ever publish.
+        if (groundingRequired && ctx.confidence < MIN_GROUNDING_CONFIDENCE) {
+          throw groundingInsufficient(
+            `Grounding confidence ${ctx.confidence.toFixed(2)} < ${MIN_GROUNDING_CONFIDENCE}; escalating to a human.`,
+            { task: input.task, orgId: input.orgId },
+          );
+        }
+      } else {
+        // Ungrounded caption fallback: no citations, zero grounding confidence.
+        groundingConfidence = 0;
       }
     }
 
