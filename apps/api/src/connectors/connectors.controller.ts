@@ -56,6 +56,13 @@ interface StartResponse {
   url: string;
 }
 
+/** Which social connectors have server-side credentials configured (booleans only — never secrets). */
+interface ConnectorAvailability {
+  instagram: boolean;
+  facebook: boolean;
+  tiktok: boolean;
+}
+
 /**
  * OAuth connect flow for external providers. `start` (JWT-guarded) returns the
  * provider's authorize URL; `callback` is a `@Public()` browser-redirect target
@@ -96,6 +103,21 @@ export class ConnectorsController {
     );
 
     return ok(buildChannelList(rows));
+  }
+
+  /**
+   * Which social connectors are configured on this deployment. Booleans only —
+   * never secrets — so the web can render each Connect button as ready vs "not
+   * set up yet" instead of letting the user click into a 400. Instagram and
+   * Facebook share the one Meta app, so both track META_APP_ID/SECRET.
+   */
+  @Get('availability')
+  @ApiOperation({ summary: 'Which social connectors are configured (booleans, no secrets)' })
+  async getAvailability(): Promise<ApiResponse<ConnectorAvailability>> {
+    const env = loadEnv();
+    const meta = Boolean(env.META_APP_ID && env.META_APP_SECRET);
+    const tiktok = Boolean(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET);
+    return ok({ instagram: meta, facebook: meta, tiktok });
   }
 
   @Get('meta/start')

@@ -760,6 +760,26 @@ export async function startConnect(provider: OAuthProvider): Promise<string> {
   return url;
 }
 
+/** Which social connectors have server-side credentials configured on the deployment. */
+export interface ConnectorAvailability {
+  instagram: boolean;
+  facebook: boolean;
+  tiktok: boolean;
+}
+
+/**
+ * Which connectors are configured (booleans only — never secrets). Lets the UI
+ * render each Connect button as ready vs "Setup pending" instead of letting the
+ * user click into a 400. In demo mode everything reads as available so the flow
+ * stays explorable without a backend.
+ */
+export async function getConnectorAvailability(): Promise<ConnectorAvailability> {
+  return withFallback(
+    () => request<ConnectorAvailability>("/connectors/availability"),
+    { instagram: true, facebook: true, tiktok: true },
+  );
+}
+
 // ─── Discovery / Onboarding ──────────────────────────────────────────────
 
 export interface DiscoveryInput {

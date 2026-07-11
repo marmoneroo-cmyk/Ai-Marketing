@@ -23,6 +23,14 @@ interface SocialConnectButtonProps {
    * pass it are unaffected.
    */
   connected?: boolean;
+  /**
+   * When false, the provider has an OAuth route but no server-side credentials
+   * configured on this deployment — the button renders an inert "Setup pending"
+   * state instead of letting the user click into a 400. Defaults to true, so
+   * callers that can't check config (e.g. the pre-auth login hero) are
+   * unaffected.
+   */
+  configured?: boolean;
 }
 
 type ConnectStatus = "idle" | "connecting" | "error";
@@ -43,12 +51,15 @@ function CheckIcon() {
 }
 
 /**
- * Connect a social channel. For providers with a real OAuth start route this
- * asks the API (authenticated) for the provider's authorize URL, then redirects
- * the browser there. A start request can't be a plain navigation — the API needs
- * the Bearer token — so it runs as a fetch with explicit connecting/error states.
- * Providers without a start route render as a clearly disabled "Coming soon"
- * control — never a silent no-op.
+ * Connect a social channel. For providers with a real OAuth start route AND
+ * server-side credentials configured, this asks the API (authenticated) for the
+ * provider's authorize URL, then redirects the browser there. A start request
+ * can't be a plain navigation — the API needs the Bearer token — so it runs as a
+ * fetch with explicit connecting/error states.
+ *
+ * A provider whose route exists but isn't configured renders as a clearly
+ * disabled "Setup pending" control; one without a route renders "Coming soon".
+ * Either way it's inert — never a silent no-op, and never a click into a 400.
  *
  * When `connected` is true, the button instead renders an inert "Connected"
  * state — already-connected channels aren't reconnectable from here.
@@ -60,8 +71,13 @@ export function SocialConnectButton({
   variant = "pill",
   surface = "light",
   connected = false,
+  configured = true,
 }: SocialConnectButtonProps) {
-  const available = hasOAuthStart(provider);
+  const routeExists = hasOAuthStart(provider);
+  // "Available" means BOTH a real OAuth route AND server-side credentials — a
+  // configured-but-not-set-up provider must not be clickable into a 400.
+  const available = routeExists && configured;
+  const disabledLabel = routeExists ? "Setup pending" : "Coming soon";
   const [status, setStatus] = useState<ConnectStatus>("idle");
   const connecting = status === "connecting";
 
@@ -87,7 +103,7 @@ export function SocialConnectButton({
     const bottomLine = connected
       ? "Connected"
       : !available
-        ? "Coming soon"
+        ? disabledLabel
         : connecting
           ? "Connecting…"
           : status === "error"
@@ -105,7 +121,7 @@ export function SocialConnectButton({
             ? `${label} — connected`
             : available
               ? `Connect ${label}`
-              : `${label} — coming soon`
+              : `${label} — ${disabledLabel.toLowerCase()}`
         }
         className={cn(
           "interactive group flex flex-col items-start rounded-xl border p-4 text-left",
@@ -158,9 +174,9 @@ export function SocialConnectButton({
             ? `${label} — connected`
             : available
               ? `Connect ${label}`
-              : `${label} — coming soon`
+              : `${label} — ${disabledLabel.toLowerCase()}`
         }
-        title={connected || available ? undefined : "Coming soon"}
+        title={connected || available ? undefined : disabledLabel}
         className={cn(
           "inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors",
           focusRing,
@@ -186,7 +202,7 @@ export function SocialConnectButton({
           </span>
         ) : !available ? (
           <span className={cn("ml-1 text-xs", isDark ? "text-zinc-400" : "text-subtle")}>
-            soon
+            {routeExists ? "setup" : "soon"}
           </span>
         ) : null}
       </button>

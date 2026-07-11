@@ -12,10 +12,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { SocialConnectButton } from "@/components/SocialConnectButton";
-import { runDiscovery, getDna, type BusinessDna } from "@/lib/api";
-import type { ConnectedChannel, Platform } from "@/lib/types";
+import {
+  runDiscovery,
+  getDna,
+  getConnectorAvailability,
+  type BusinessDna,
+  type ConnectorAvailability,
+} from "@/lib/api";
+import type { ConnectedChannel } from "@/lib/types";
 
-const SOCIALS: Array<{ key: Platform; label: string; hint: string }> = [
+const SOCIALS: Array<{ key: keyof ConnectorAvailability; label: string; hint: string }> = [
   { key: "instagram", label: "Instagram", hint: "Posts, reels, comments, audience" },
   { key: "facebook", label: "Facebook", hint: "Page posts & Messenger" },
   { key: "tiktok", label: "TikTok", hint: "Videos & engagement" },
@@ -61,6 +67,10 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
   const [dna, setDna] = useState<BusinessDna | null>(null);
+  // Which connectors are actually configured server-side, so each Connect
+  // button shows "Setup pending" instead of letting the user click into a 400.
+  // Null while loading → treated optimistically as available (no disabled flash).
+  const [availability, setAvailability] = useState<ConnectorAvailability | null>(null);
 
   // Real, derived-from-data connection state — not assumed. Only a channel the
   // API actually reports as "connected" counts, so a returning user gets
@@ -78,6 +88,23 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
     active.current = true;
     return () => {
       active.current = false;
+    };
+  }, []);
+
+  // Load connector availability once so buttons reflect real server-side config,
+  // not just whether a route exists. A failure leaves everything optimistically
+  // enabled (the button's own error state still catches a genuine misconfig).
+  useEffect(() => {
+    let cancelled = false;
+    getConnectorAvailability()
+      .then((a) => {
+        if (!cancelled) setAvailability(a);
+      })
+      .catch(() => {
+        /* leave null → buttons stay optimistically enabled */
+      });
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -176,13 +203,38 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
                 hint={s.hint}
                 variant="card"
                 connected={connectedProviders.has(s.key)}
+                configured={availability ? availability[s.key] : true}
               />
             ))}
           </div>
-          <p className="mt-3 text-xs text-subtle">
-            OAuth connect flows are provisioned per platform. Website analysis
-            below works right now.
-          </p>
+          <details className="mt-3 text-xs text-subtle">
+            <summary className="cursor-pointer select-none font-medium text-muted hover:text-foreground">
+              How do I connect Instagram or Facebook?
+            </summary>
+            <ol className="mt-2 ml-4 list-decimal space-y-1">
+              <li>
+                Make sure your Instagram is a{" "}
+                <span className="font-medium text-foreground">Business or Creator</span> account.
+              </li>
+              <li>
+                Link it to a{" "}
+                <span className="font-medium text-foreground">Facebook Page</span>{" "}
+                (Instagram → Settings → Account type).
+              </li>
+              <li>
+                Click <span className="font-medium text-foreground">Connect</span> above and
+                authorize BrandPilot.
+              </li>
+            </ol>
+            {availability && !availability.instagram ? (
+              <p className="mt-2">
+                Instagram &amp; Facebook aren&apos;t set up on this workspace yet — an admin needs
+                to add Meta credentials. Website analysis below works right now.
+              </p>
+            ) : (
+              <p className="mt-2">Website analysis below works right now.</p>
+            )}
+          </details>
         </CardContent>
       </Card>
 
