@@ -267,22 +267,40 @@ export class ContentEngine {
 
     let variantCount = 0;
     let variantErrors = 0;
+    let variantErrorSample: string | undefined;
     for (const item of items) {
       for (const platform of platforms) {
         if (variantCount >= MAX_VARIANTS_PER_RUN) {
-          return { planId: plan.planId, itemCount: plan.itemCount, variantCount, variantErrors };
+          return {
+            planId: plan.planId,
+            itemCount: plan.itemCount,
+            variantCount,
+            variantErrors,
+            ...(variantErrorSample ? { variantErrorSample } : {}),
+          };
         }
         try {
           await this.generateVariant(orgId, item.id, platform);
           variantCount++;
-        } catch {
-          // Best-effort: one bad draft (LLM error, spend cap, parse fail) must not
-          // abort the batch. Counted so the caller can log/observe the failure rate.
+        } catch (err: unknown) {
+          // Best-effort: one bad draft (LLM error, spend cap, parse fail) must
+          // not abort the batch. Capture the FIRST error's message so the caller
+          // can log the real cause (it was previously swallowed — a failed draft
+          // looked identical to a healthy run), then count it.
+          if (variantErrorSample === undefined) {
+            variantErrorSample = err instanceof Error ? err.message : String(err);
+          }
           variantErrors++;
         }
       }
     }
-    return { planId: plan.planId, itemCount: plan.itemCount, variantCount, variantErrors };
+    return {
+      planId: plan.planId,
+      itemCount: plan.itemCount,
+      variantCount,
+      variantErrors,
+      ...(variantErrorSample ? { variantErrorSample } : {}),
+    };
   }
 
   /**

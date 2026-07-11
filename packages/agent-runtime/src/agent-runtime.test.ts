@@ -131,11 +131,13 @@ describe('AgentRuntime.run', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it('enforces the grounding requirement for EVERY customer-facing task (reply, caption, objection)', async () => {
-    // Locks the safety boundary: if a customer-facing task ever drops out of
-    // CUSTOMER_FACING_TASKS, its published output would silently skip grounding +
-    // guardrails. Each must escalate when it has nothing to ground against.
-    for (const task of ['reply', 'caption', 'objection'] as const) {
+  it('hard-requires grounding for live-answer tasks (reply, objection) but lets caption draft without it', async () => {
+    // Safety boundary split: reply/objection are DIRECT customer answers — they
+    // must escalate when they cannot be grounded (fabricating hours/prices there
+    // is real harm). caption is a PROACTIVE draft, guardrailed and human-reviewed
+    // before publishing, so it drafts anyway — a thin knowledge base must never
+    // leave the owner with zero content.
+    for (const task of ['reply', 'objection'] as const) {
       const { brain } = makeFakeBrain();
       const { llm, complete } = makeFakeLlm(envelope('hi'));
       const runtime = new AgentRuntime({ brain, llm });
@@ -145,19 +147,40 @@ describe('AgentRuntime.run', () => {
       ).rejects.toMatchObject({ code: 'grounding_insufficient' });
       expect(complete).not.toHaveBeenCalled();
     }
+
+    // caption proceeds to draft even with no groundingQuery at all.
+    const { brain } = makeFakeBrain();
+    const { llm, complete } = makeFakeLlm(envelope('Fresh handcrafted dice, just dropped.'));
+    const runtime = new AgentRuntime({ brain, llm });
+    const result = await runtime.run(baseInput({ task: 'caption', groundingQuery: undefined }));
+    expect(result.output).toBe('Fresh handcrafted dice, just dropped.');
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 
-  it('throws grounding_insufficient when grounding confidence is below MIN_GROUNDING_CONFIDENCE', async () => {
+  it('throws grounding_insufficient for a live answer below MIN_GROUNDING_CONFIDENCE, but still drafts a caption', async () => {
     const lowConfidence = MIN_GROUNDING_CONFIDENCE - 0.1;
-    const { brain } = makeFakeBrain({ confidence: lowConfidence });
-    const { llm, complete } = makeFakeLlm(envelope('hello'));
-    const runtime = new AgentRuntime({ brain, llm });
 
-    await expect(runtime.run(baseInput({ task: 'reply' }))).rejects.toMatchObject({
-      code: 'grounding_insufficient',
-    });
-    // Escalation happens before the model is ever called.
-    expect(complete).not.toHaveBeenCalled();
+    // reply: a weakly-grounded live answer escalates before the model is called.
+    {
+      const { brain } = makeFakeBrain({ confidence: lowConfidence });
+      const { llm, complete } = makeFakeLlm(envelope('hello'));
+      const runtime = new AgentRuntime({ brain, llm });
+      await expect(runtime.run(baseInput({ task: 'reply' }))).rejects.toMatchObject({
+        code: 'grounding_insufficient',
+      });
+      expect(complete).not.toHaveBeenCalled();
+    }
+
+    // caption: the SAME weak grounding drafts anyway (this is the freshly-onboarded
+    // org case — little indexed knowledge must still yield reviewable drafts).
+    {
+      const { brain } = makeFakeBrain({ confidence: lowConfidence });
+      const { llm, complete } = makeFakeLlm(envelope('Weekend sale on handcrafted dice.'));
+      const runtime = new AgentRuntime({ brain, llm });
+      const result = await runtime.run(baseInput({ task: 'caption' }));
+      expect(result.output).toBe('Weekend sale on handcrafted dice.');
+      expect(complete).toHaveBeenCalledTimes(1);
+    }
   });
 
   it('resolves with output, rationale, confidence and citedChunkIds on sufficient grounding + clean output', async () => {

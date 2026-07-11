@@ -24,7 +24,14 @@ export function createContentWorker(ctx: WorkerContext, connection: IORedis): Wo
       });
       if (result.variantErrors > 0) {
         logger.warn(
-          { orgId, planId: result.planId, variantErrors: result.variantErrors },
+          {
+            orgId,
+            planId: result.planId,
+            variantErrors: result.variantErrors,
+            // Surface the real cause — this was previously invisible, so a plan
+            // that drafted zero usable variants looked identical to a healthy run.
+            variantErrorSample: result.variantErrorSample,
+          },
           'some content variants failed to draft',
         );
       }

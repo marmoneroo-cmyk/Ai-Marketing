@@ -64,6 +64,8 @@ export interface WeeklyPlanWithVariantsResult {
   variantCount: number;
   /** Per-variant drafting failures that were counted + skipped (never thrown). */
   variantErrors: number;
+  /** First failure's message (for diagnosis) when variantErrors > 0; else omitted. */
+  variantErrorSample?: string;
 }
 
 export interface VariantResult {
