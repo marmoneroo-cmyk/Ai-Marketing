@@ -78,6 +78,48 @@ Then in the [Meta developer dashboard](https://developers.facebook.com/apps):
 
 Until `META_APP_ID` is set, `Connect` returns `META_APP_ID is not configured`.
 The same one Meta app powers both Instagram and Facebook (one start/callback pair).
+Comment webhooks (optional) land at `https://<api-domain>/connectors/meta/webhook`, verified by `META_VERIFY_TOKEN`.
+
+## Other integrations (optional — set to enable each)
+
+Every one of these is **optional**: the app boots without them and each feature degrades
+gracefully until its keys are set. OAuth redirect URIs are all built from `API_URL`.
+
+### Google sign-in ("Continue with Google") — set on **api**
+```
+GOOGLE_CLIENT_ID=<Google Cloud OAuth client>
+GOOGLE_CLIENT_SECRET=<Google Cloud OAuth client>
+```
+- Authorized redirect URI: `https://<api-domain>/auth/google/callback`
+- Scopes: `openid email profile` (configure the OAuth consent screen in Google Cloud).
+- If unset, the button degrades to `?oauth_error=google_unavailable` — no crash.
+
+### TikTok — set on **api** + **worker**
+```
+TIKTOK_CLIENT_KEY=<TikTok developer app>
+TIKTOK_CLIENT_SECRET=<TikTok developer app>
+```
+- Redirect URI: `https://<api-domain>/connectors/tiktok/callback`
+- Scopes: `user.info.basic`, `video.list`.
+
+### WhatsApp (Meta Cloud API) — set on **api** + **worker** (also uses `META_APP_ID`/`META_APP_SECRET`)
+```
+WHATSAPP_TOKEN=<permanent system-user token>
+WHATSAPP_PHONE_NUMBER_ID=<from WhatsApp > API setup>
+WHATSAPP_VERIFY_TOKEN=<random string; enter the same value in the Meta webhook config>
+```
+- Webhook callback URL: `https://<api-domain>/connectors/whatsapp/webhook`
+
+### AI media + other keys (set on **api** + **worker** unless noted)
+```
+FAL_KEY=<fal.ai key>            # generates the image/video/reel formats
+FIRECRAWL_API_KEY=<key>         # website crawl for discovery / onboarding
+STRIPE_SECRET_KEY=<key>         # billing
+STRIPE_WEBHOOK_SECRET=<secret>  # verifies Stripe webhook signatures
+S3_ENDPOINT / S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY   # media storage
+SENTRY_DSN=<dsn>                # error tracking
+EMAIL_FROM="BrandPilot <no-reply@yourdomain>"   # transactional email sender identity
+```
 
 ## Notes
 - **DB port**: use `:5432` (Supabase session pooler — the one migrations ran on). `:6543`
