@@ -23,6 +23,10 @@ const envSchema = z.object({
   META_APP_ID: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
   META_VERIFY_TOKEN: z.string().optional(),
+  // "Instagram API with Instagram Login" uses its OWN app id/secret (from the
+  // Instagram product in the Meta app), distinct from META_APP_* (Facebook).
+  INSTAGRAM_APP_ID: z.string().optional(),
+  INSTAGRAM_APP_SECRET: z.string().optional(),
   TIKTOK_CLIENT_KEY: z.string().optional(),
   TIKTOK_CLIENT_SECRET: z.string().optional(),
   // "Continue with Google" OAuth (apps/api/src/auth/google-oauth.controller.ts).

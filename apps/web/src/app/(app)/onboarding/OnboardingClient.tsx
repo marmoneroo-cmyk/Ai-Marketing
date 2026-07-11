@@ -214,16 +214,13 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
             <ol className="mt-2 ml-4 list-decimal space-y-1">
               <li>
                 Make sure your Instagram is a{" "}
-                <span className="font-medium text-foreground">Business or Creator</span> account.
-              </li>
-              <li>
-                Link it to a{" "}
-                <span className="font-medium text-foreground">Facebook Page</span>{" "}
+                <span className="font-medium text-foreground">Business or Creator</span> account
                 (Instagram → Settings → Account type).
               </li>
               <li>
-                Click <span className="font-medium text-foreground">Connect</span> above and
-                authorize BrandPilot.
+                Click <span className="font-medium text-foreground">Connect</span> above and sign in
+                with Instagram to authorize BrandPilot — no Facebook Page needed. (Connecting a
+                Facebook Page separately does require that Page.)
               </li>
             </ol>
             {availability && !availability.instagram ? (

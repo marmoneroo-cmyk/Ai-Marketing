@@ -5,6 +5,7 @@ export * from './types';
 export * from './crypto';
 export * from './firecrawl';
 export * from './meta';
+export * from './instagram';
 export * from './tiktok';
 export * from './whatsapp';
 export * from './factory';

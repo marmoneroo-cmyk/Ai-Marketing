@@ -5,6 +5,7 @@ import { and, count, desc, eq } from 'drizzle-orm';
 import { organizations, socialAccounts, connectorTokens, withOrgScope, type Database } from '@brandpilot/db';
 import {
   MetaConnector,
+  InstagramLoginConnector,
   TikTokConnector,
   encryptToken,
   type ConnectResult,
@@ -32,6 +33,14 @@ const META_SCOPES = [
   'pages_manage_posts',
   'business_management',
 ];
+
+/**
+ * Instagram Login ("Instagram API with Instagram Login") authorize endpoint +
+ * scopes. This path authenticates directly against Instagram — no Facebook Page
+ * required — and uses the dedicated INSTAGRAM_APP_* credentials.
+ */
+const INSTAGRAM_LOGIN_DIALOG = 'https://www.instagram.com/oauth/authorize';
+const INSTAGRAM_SCOPES = ['instagram_business_basic', 'instagram_business_content_publish'];
 
 /** TikTok Login Kit authorize endpoint (v2) + the scopes we request. */
 const TIKTOK_OAUTH_AUTHORIZE = 'https://www.tiktok.com/v2/auth/authorize/';
@@ -108,16 +117,18 @@ export class ConnectorsController {
   /**
    * Which social connectors are configured on this deployment. Booleans only —
    * never secrets — so the web can render each Connect button as ready vs "not
-   * set up yet" instead of letting the user click into a 400. Instagram and
-   * Facebook share the one Meta app, so both track META_APP_ID/SECRET.
+   * set up yet" instead of letting the user click into a 400. Instagram uses the
+   * dedicated Instagram Login app (INSTAGRAM_APP_*); Facebook uses the Meta app
+   * (META_APP_*).
    */
   @Get('availability')
   @ApiOperation({ summary: 'Which social connectors are configured (booleans, no secrets)' })
   async getAvailability(): Promise<ApiResponse<ConnectorAvailability>> {
     const env = loadEnv();
+    const instagram = Boolean(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET);
     const meta = Boolean(env.META_APP_ID && env.META_APP_SECRET);
     const tiktok = Boolean(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET);
-    return ok({ instagram: meta, facebook: meta, tiktok });
+    return ok({ instagram, facebook: meta, tiktok });
   }
 
   @Get('meta/start')
@@ -184,6 +195,62 @@ export class ConnectorsController {
       // Never surface raw JSON/stack to the browser mid-OAuth — log + land the
       // user back in the app with an error state they can retry from.
       logger.warn({ err }, 'Meta OAuth callback failed');
+      this.redirectToSettings(res, 'instagram', false);
+    }
+  }
+
+  @Get('instagram/start')
+  @RequirePermissions('settings:manage')
+  @ApiOperation({ summary: 'Get the Instagram Login OAuth authorize URL (no Facebook Page required)' })
+  async getInstagramStart(@CurrentOrg() orgId: string): Promise<ApiResponse<StartResponse>> {
+    await this.assertChannelCapacity(orgId);
+
+    const env = loadEnv();
+    if (!env.INSTAGRAM_APP_ID) {
+      throw new AppError('bad_request', 'INSTAGRAM_APP_ID is not configured');
+    }
+
+    // Signed, single-use CSRF state bound to this org (verified in the callback).
+    const state = createOAuthState(orgId, env.AUTH_SECRET);
+
+    // Must be byte-identical to the token-exchange redirect_uri (see
+    // InstagramLoginConnector) and target the API origin — Instagram rejects a mismatch.
+    const redirectUri = connectorRouteUrl(env, 'instagram/callback');
+    const url = new URL(INSTAGRAM_LOGIN_DIALOG);
+    url.searchParams.set('client_id', env.INSTAGRAM_APP_ID);
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('scope', INSTAGRAM_SCOPES.join(','));
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('state', state);
+
+    return ok({ url: url.toString() });
+  }
+
+  @Get('instagram/callback')
+  @Public()
+  @ApiOperation({ summary: 'Complete the Instagram Login OAuth exchange and connect the account' })
+  async getInstagramCallback(
+    @Res() res: Response,
+    @Query('code') code?: string,
+    @Query('state') state?: string,
+    @Query('error') error?: string,
+  ): Promise<void> {
+    try {
+      // Provider returned an error (e.g. the user denied consent) or no code.
+      if (error || !code) {
+        this.redirectToSettings(res, 'instagram', false);
+        return;
+      }
+
+      // Third-party redirect with no JWT: the org comes from the signed `state`
+      // issued at `start` (also rejects forged/expired state before any work).
+      const orgId = readOAuthState(state, loadEnv().AUTH_SECRET);
+      const { tokens, account } = await new InstagramLoginConnector().connect(code);
+      await this.persistConnectedAccount(orgId, 'instagram', account, tokens);
+
+      this.redirectToSettings(res, 'instagram', true);
+    } catch (err) {
+      logger.warn({ err }, 'Instagram OAuth callback failed');
       this.redirectToSettings(res, 'instagram', false);
     }
   }

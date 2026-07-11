@@ -865,9 +865,15 @@ export function hasOAuthStart(provider: string): provider is OAuthProvider {
   return (OAUTH_PROVIDERS as readonly string[]).includes(provider);
 }
 
-/** Map a connectable provider to its OAuth route family (Meta serves IG + FB). */
-function oauthRouteFamily(provider: OAuthProvider): "meta" | "tiktok" {
-  return provider === "tiktok" ? "tiktok" : "meta";
+/**
+ * Map a connectable provider to its OAuth route family. Instagram uses the
+ * dedicated Instagram Login route (no Facebook Page needed); Facebook uses the
+ * Meta-app route; TikTok its own.
+ */
+function oauthRouteFamily(provider: OAuthProvider): "meta" | "instagram" | "tiktok" {
+  if (provider === "tiktok") return "tiktok";
+  if (provider === "instagram") return "instagram";
+  return "meta"; // facebook
 }
 
 /**
@@ -878,10 +884,9 @@ function oauthRouteFamily(provider: OAuthProvider): "meta" | "tiktok" {
  * API requires. The caller redirects the browser to the returned URL to reach
  * the provider's consent screen.
  *
- * The `meta` route family serves both `instagram` and `facebook`, so the
- * actual button's platform is forwarded as `?provider=` — without it the API
- * can't tell which one the user clicked and the connected account would
- * always be persisted as `instagram`.
+ * The `meta` route family serves `facebook`, so its platform is forwarded as
+ * `?provider=` — without it the API defaults the account to `instagram`.
+ * `instagram` and `tiktok` are single-provider routes and need no query.
  */
 export async function startConnect(provider: OAuthProvider): Promise<string> {
   const family = oauthRouteFamily(provider);
