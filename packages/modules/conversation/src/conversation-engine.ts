@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '@brandpilot/db';
 import { conversations, conversationMessages, contacts, leads, organizations } from '@brandpilot/db';
 import { AppError } from '@brandpilot/core';
+import { logger } from '@brandpilot/observability';
 import type { BusinessBrain } from '@brandpilot/business-brain';
 import type { AgentRuntime } from '@brandpilot/agent-runtime';
 import type { InboundContact, InboundMessage, InboundResult } from './types';
@@ -82,8 +83,11 @@ export class ConversationEngine {
     if (contactId) {
       try {
         await this.ensureLead(orgId, contactId, input.channel);
-      } catch {
-        /* lead capture must not break the reply path */
+      } catch (err: unknown) {
+        // Best-effort (must not break the reply path) but NOT silent — a broken
+        // lead-capture path would otherwise stop creating leads for an org with
+        // zero observability.
+        logger.warn({ err, orgId, contactId }, 'lead capture failed');
       }
     }
 
@@ -129,8 +133,15 @@ export class ConversationEngine {
             subjectId: conversationId,
           });
           return { conversationId, status: 'ai_handling', reply: res.output, escalated: false };
-        } catch {
-          /* delivery failed → fall through to the draft/needs-human path below */
+        } catch (err: unknown) {
+          // Delivery to the customer failed (expired token, rate limit, bad
+          // thread id). Fall through to the draft path, but log WHY — a
+          // persistent break (e.g. revoked token) would otherwise repeat on
+          // every reply with no diagnostic trail.
+          logger.warn(
+            { err, orgId, channel: input.channel, externalThreadId: input.externalThreadId },
+            'reply delivery failed; kept as draft for owner review',
+          );
         }
       }
 

@@ -183,10 +183,23 @@ export class ConnectorsController {
     @Query('state') state?: string,
     @Query('error') error?: string,
   ): Promise<void> {
+    // Best-effort decode of the intended provider FIRST, so any error redirect
+    // lands on the right channel's toast (facebook vs instagram) instead of
+    // always blaming instagram. State may be forged/expired — tolerate that here;
+    // the authoritative validation (which throws) still gates the connect below.
+    let provider: MetaPlatform = 'instagram';
+    try {
+      if (state) {
+        provider = normalizeMetaPlatform(readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET).provider);
+      }
+    } catch {
+      /* keep the default; real validation happens in the try block */
+    }
+
     try {
       // Provider returned an error (e.g. the user denied consent) or no code.
       if (error || !code) {
-        this.redirectToSettings(res, 'instagram', false);
+        this.redirectToSettings(res, provider, false);
         return;
       }
 
@@ -194,7 +207,7 @@ export class ConnectorsController {
       // the instagram/facebook choice made at `start`) come from the signed
       // `state`. This also rejects forged/expired state (throws) before any work.
       const { orgId, provider: stateProvider } = readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET);
-      const provider = normalizeMetaPlatform(stateProvider);
+      provider = normalizeMetaPlatform(stateProvider);
       const { tokens, account } = await new MetaConnector().connect(code);
       await this.persistConnectedAccount(orgId, provider, account, tokens);
 
@@ -203,7 +216,7 @@ export class ConnectorsController {
       // Never surface raw JSON/stack to the browser mid-OAuth — log + land the
       // user back in the app with an error state they can retry from.
       logger.warn({ err }, 'Meta OAuth callback failed');
-      this.redirectToSettings(res, 'instagram', false);
+      this.redirectToSettings(res, provider, false);
     }
   }
 

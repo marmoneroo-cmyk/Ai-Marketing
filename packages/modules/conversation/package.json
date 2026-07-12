@@ -18,6 +18,7 @@
     "@brandpilot/config": "workspace:*",
     "@brandpilot/core": "workspace:*",
     "@brandpilot/db": "workspace:*",
+    "@brandpilot/observability": "workspace:*",
     "drizzle-orm": "^0.36.0"
   },
   "devDependencies": {

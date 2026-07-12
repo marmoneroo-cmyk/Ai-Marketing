@@ -559,6 +559,9 @@ importers:
       '@brandpilot/db':
         specifier: workspace:*
         version: link:../../db
+      '@brandpilot/observability':
+        specifier: workspace:*
+        version: link:../../observability
       drizzle-orm:
         specifier: ^0.36.0
         version: 0.36.4(@opentelemetry/api@1.9.1)(@types/pg@8.6.1)(@types/react@19.2.17)(postgres@3.4.9)(react@19.2.7)
