@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { AutonomySwitch } from "@/components/AutonomySwitch";
 import { SocialConnectButton } from "@/components/SocialConnectButton";
+import { hasOAuthStart, startConnect } from "@/lib/api";
 import { PlatformBadge } from "@/components/platform-badge";
 import { TeamManagementCard } from "@/components/TeamManagementCard";
 import { formatCurrency, formatDayLabel } from "@/lib/format";
@@ -58,6 +59,50 @@ const STATUS_LABEL: Record<ChannelStatus, string> = {
   disconnected: "Not connected",
 };
 
+/**
+ * Re-run the OAuth connect flow for an already-connected channel. Needed to
+ * re-authorize after we request new scopes (e.g. comment access) — a connected
+ * channel otherwise has no way to grant them. Reuses the same start-flow as the
+ * initial connect: ask the API for the authorize URL, then leave for consent.
+ */
+function ReconnectButton({ provider }: { provider: Platform }) {
+  const [status, setStatus] = useState<"idle" | "connecting" | "error">("idle");
+
+  // No OAuth route for this provider (e.g. email) → nothing to reconnect.
+  if (!hasOAuthStart(provider)) {
+    return <span className="text-xs font-medium text-subtle">Managed</span>;
+  }
+
+  async function handleReconnect(): Promise<void> {
+    if (status === "connecting" || !hasOAuthStart(provider)) return;
+    setStatus("connecting");
+    try {
+      const url = await startConnect(provider);
+      window.location.href = url; // leave the SPA for the provider's consent screen
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={() => void handleReconnect()}
+        disabled={status === "connecting"}
+        className="inline-flex items-center rounded-xl border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-wait disabled:opacity-80"
+      >
+        {status === "connecting" ? "Reconnecting…" : "Reconnect"}
+      </button>
+      {status === "error" ? (
+        <span role="alert" className="text-xs text-red-600 dark:text-red-400">
+          Couldn&apos;t start — try again.
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function ChannelRow({ channel }: { channel: ConnectedChannel }) {
   const label = PLATFORM_LABEL[channel.provider];
   return (
@@ -88,7 +133,7 @@ function ChannelRow({ channel }: { channel: ConnectedChannel }) {
         </p>
       </div>
       {channel.status === "connected" ? (
-        <span className="text-xs font-medium text-subtle">Managed</span>
+        <ReconnectButton provider={channel.provider} />
       ) : (
         <SocialConnectButton
           provider={channel.provider}
