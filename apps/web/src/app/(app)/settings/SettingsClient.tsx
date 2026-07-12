@@ -67,6 +67,7 @@ const STATUS_LABEL: Record<ChannelStatus, string> = {
  */
 function ReconnectButton({ provider }: { provider: Platform }) {
   const [status, setStatus] = useState<"idle" | "connecting" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // No OAuth route for this provider (e.g. email) → nothing to reconnect.
   if (!hasOAuthStart(provider)) {
@@ -76,10 +77,12 @@ function ReconnectButton({ provider }: { provider: Platform }) {
   async function handleReconnect(): Promise<void> {
     if (status === "connecting" || !hasOAuthStart(provider)) return;
     setStatus("connecting");
+    setErrorMsg(null);
     try {
       const url = await startConnect(provider);
       window.location.href = url; // leave the SPA for the provider's consent screen
-    } catch {
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : null);
       setStatus("error");
     }
   }
@@ -96,7 +99,7 @@ function ReconnectButton({ provider }: { provider: Platform }) {
       </button>
       {status === "error" ? (
         <span role="alert" className="text-xs text-red-600 dark:text-red-400">
-          Couldn&apos;t start — try again.
+          {errorMsg ?? "Couldn't start — try again."}
         </span>
       ) : null}
     </div>

@@ -79,6 +79,7 @@ export function SocialConnectButton({
   const available = routeExists && configured;
   const disabledLabel = routeExists ? "Setup pending" : "Coming soon";
   const [status, setStatus] = useState<ConnectStatus>("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const connecting = status === "connecting";
 
   async function handleConnect() {
@@ -86,12 +87,15 @@ export function SocialConnectButton({
     // Narrow Platform → OAuthProvider for the typed start call.
     if (!hasOAuthStart(provider)) return;
     setStatus("connecting");
+    setErrorMsg(null);
     try {
       const url = await startConnect(provider);
       // Leave the SPA for the provider's consent screen.
       window.location.href = url;
-    } catch {
-      // Surface a retryable error instead of a silent failure.
+    } catch (err: unknown) {
+      // Surface the REAL reason (e.g. "Plan limit reached", "not configured")
+      // instead of a generic retry prompt.
+      setErrorMsg(err instanceof Error ? err.message : null);
       setStatus("error");
     }
   }
@@ -107,7 +111,7 @@ export function SocialConnectButton({
         : connecting
           ? "Connecting…"
           : status === "error"
-            ? "Couldn't start — retry"
+            ? (errorMsg ?? "Couldn't start — retry")
             : "Connect →";
 
     return (
@@ -211,7 +215,7 @@ export function SocialConnectButton({
           role="alert"
           className={cn("text-xs", isDark ? "text-red-300" : "text-red-600")}
         >
-          Couldn't start connecting — try again.
+          {errorMsg ?? "Couldn't start connecting — try again."}
         </span>
       ) : null}
     </span>
