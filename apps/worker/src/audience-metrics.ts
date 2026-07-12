@@ -35,23 +35,35 @@ export async function refreshFollowerMetrics(ctx: WorkerContext, orgId: string):
     .from(socialAccounts)
     .where(and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.status, 'connected')));
 
+  logger.info({ orgId, connectedAccounts: accounts.length }, 'refreshing follower metrics');
+
   let refreshed = 0;
   let latestFollowers: number | undefined;
 
   for (const account of accounts) {
     try {
       const connector = createConnector(account.provider);
-      if (typeof connector.fetchAudience !== 'function') continue; // provider has no audience API
+      if (typeof connector.fetchAudience !== 'function') {
+        logger.info({ orgId, provider: account.provider }, 'provider has no audience API; skipping');
+        continue; // provider has no audience API
+      }
 
       const [tok] = await ctx.db
         .select()
         .from(connectorTokens)
         .where(eq(connectorTokens.socialAccountId, account.id))
         .limit(1);
-      if (!tok) continue; // no stored token → nothing to authenticate with
+      if (!tok) {
+        logger.warn({ orgId, accountId: account.id }, 'no stored token for account; skipping followers');
+        continue; // no stored token → nothing to authenticate with
+      }
 
       const accessToken = decryptToken(tok.accessTokenEnc);
       const stats = await connector.fetchAudience({ accountId: account.externalId, accessToken });
+      logger.info(
+        { orgId, provider: account.provider, followers: stats.followers ?? null },
+        'fetched audience stats',
+      );
       if (stats.followers === undefined) continue; // e.g. personal account: no follower field
 
       const existing = (account.metadata ?? {}) as Record<string, unknown>;
