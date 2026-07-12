@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { logger } from '@brandpilot/observability';
-import { runDailyTick, runPublishTick } from './scheduler';
+import { runDailyTick, runPublishTick, runCommentsTick } from './scheduler';
 import type { WorkerContext } from './context';
 
 /**
@@ -73,23 +73,39 @@ function createPublishTickDb(opts: { due: ScheduledPostRow[]; claimed?: Schedule
 function createFakeProducers(overrides?: {
   publishAddImpl?: (name: string, data: { orgId: string; scheduledPostId: string }) => Promise<unknown>;
   brainReindexAddImpl?: (name: string, data: { orgId: string }) => Promise<unknown>;
+  commentsPollAddImpl?: (name: string, data: { orgId: string }) => Promise<unknown>;
 }): {
   producers: WorkerContext['producers'];
   publishAdd: ReturnType<typeof vi.fn>;
   brainReindexAdd: ReturnType<typeof vi.fn>;
   analyticsRollupAdd: ReturnType<typeof vi.fn>;
+  commentsPollAdd: ReturnType<typeof vi.fn>;
 } {
   const publishAdd = vi.fn(overrides?.publishAddImpl ?? (() => Promise.resolve(undefined)));
   const brainReindexAdd = vi.fn(overrides?.brainReindexAddImpl ?? (() => Promise.resolve(undefined)));
   const analyticsRollupAdd = vi.fn(() => Promise.resolve(undefined));
+  const commentsPollAdd = vi.fn(overrides?.commentsPollAddImpl ?? (() => Promise.resolve(undefined)));
 
   const producers = {
     publish: { add: publishAdd },
     brainReindex: { add: brainReindexAdd },
     analyticsRollup: { add: analyticsRollupAdd },
+    commentsPoll: { add: commentsPollAdd },
   } as unknown as WorkerContext['producers'];
 
-  return { producers, publishAdd, brainReindexAdd, analyticsRollupAdd };
+  return { producers, publishAdd, brainReindexAdd, analyticsRollupAdd, commentsPollAdd };
+}
+
+/**
+ * Minimal chainable fake for the one `ctx.db` call shape `runCommentsTick` makes:
+ * `db.selectDistinct({ id }).from(socialAccounts).where(...)`, awaited directly
+ * → resolves straight to the distinct org rows.
+ */
+function createCommentsTickDb(orgs: OrgRow[]): { db: WorkerContext['db'] } {
+  const where = vi.fn(() => Promise.resolve(orgs));
+  const from = vi.fn(() => ({ where }));
+  const selectDistinct = vi.fn(() => ({ from }));
+  return { db: { selectDistinct } as unknown as WorkerContext['db'] };
 }
 
 function buildCtx(db: WorkerContext['db'], producers: WorkerContext['producers']): WorkerContext {
@@ -98,6 +114,46 @@ function buildCtx(db: WorkerContext['db'], producers: WorkerContext['producers']
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('runCommentsTick', () => {
+  it('enqueues one comments.poll per org that has a connected instagram account', async () => {
+    const orgs: OrgRow[] = [{ id: 'org_a' }, { id: 'org_b' }];
+    const { db } = createCommentsTickDb(orgs);
+    const { producers, commentsPollAdd } = createFakeProducers();
+
+    const result = await runCommentsTick(buildCtx(db, producers));
+
+    expect(result).toEqual({ orgs: 2, failed: 0 });
+    expect(commentsPollAdd).toHaveBeenCalledTimes(2);
+    expect(commentsPollAdd).toHaveBeenCalledWith('poll', { orgId: 'org_a' });
+    expect(commentsPollAdd).toHaveBeenCalledWith('poll', { orgId: 'org_b' });
+  });
+
+  it('enqueues nothing when no instagram account is connected', async () => {
+    const { db } = createCommentsTickDb([]);
+    const { producers, commentsPollAdd } = createFakeProducers();
+
+    const result = await runCommentsTick(buildCtx(db, producers));
+
+    expect(result).toEqual({ orgs: 0, failed: 0 });
+    expect(commentsPollAdd).not.toHaveBeenCalled();
+  });
+
+  it('counts a failed enqueue without aborting the rest', async () => {
+    const orgs: OrgRow[] = [{ id: 'org_a' }, { id: 'org_b' }];
+    const { db } = createCommentsTickDb(orgs);
+    const { producers, commentsPollAdd } = createFakeProducers({
+      commentsPollAddImpl: (_name, data) =>
+        data.orgId === 'org_a' ? Promise.reject(new Error('redis down')) : Promise.resolve(undefined),
+    });
+    vi.spyOn(logger, 'error').mockImplementation(() => logger);
+
+    const result = await runCommentsTick(buildCtx(db, producers));
+
+    expect(result).toEqual({ orgs: 2, failed: 1 });
+    expect(commentsPollAdd).toHaveBeenCalledTimes(2); // org_b still attempted
+  });
 });
 
 describe('runPublishTick', () => {

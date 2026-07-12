@@ -109,6 +109,41 @@ describe('InstagramLoginConnector.fetchAudience', () => {
   });
 });
 
+describe('InstagramLoginConnector.pull comments', () => {
+  it('reads comments on a media into inbound comment items', async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes('/media-1/comments')) {
+        return jsonResponse({
+          data: [
+            { id: 'c1', text: 'Do you ship to Berlin?', username: 'fan_1', timestamp: '2026-07-12T10:00:00Z', like_count: 2 },
+            { id: 'c2', text: 'Love these!', username: 'fan_2', timestamp: '2026-07-12T11:00:00Z' },
+          ],
+        });
+      }
+      throw new Error(`unexpected url ${u}`);
+    }) as unknown as typeof fetch;
+
+    const items = await new InstagramLoginConnector().pull('comments', {
+      accountId: 'media-1',
+      accessToken: 'long-tok',
+    });
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ kind: 'comment', externalId: 'c1' });
+    expect((items[0]?.raw as { text?: string }).text).toBe('Do you ship to Berlin?');
+    expect(items[0]?.metrics).toEqual({ likes: 2 });
+    // A comment with no like_count carries no metrics object.
+    expect(items[1]?.metrics).toBeUndefined();
+  });
+
+  it('rejects an unsupported pull resource (e.g. DMs)', async () => {
+    await expect(
+      new InstagramLoginConnector().pull('dm', { accountId: 'x', accessToken: 't' }),
+    ).rejects.toThrow(/unsupported resource/);
+  });
+});
+
 describe('InstagramLoginConnector.push', () => {
   it('publishes via the two-step container + media_publish', async () => {
     const calls: string[] = [];

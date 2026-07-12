@@ -75,8 +75,19 @@ interface IgMediaNode {
   like_count?: number;
   comments_count?: number;
 }
+interface IgCommentNode {
+  id: string;
+  text?: string;
+  username?: string;
+  timestamp?: string;
+  like_count?: number;
+}
 interface IgListResponse extends IgErrorEnvelope {
   data?: IgMediaNode[];
+  paging?: { cursors?: { after?: string } };
+}
+interface IgCommentListResponse extends IgErrorEnvelope {
+  data?: IgCommentNode[];
   paging?: { cursors?: { after?: string } };
 }
 
@@ -233,29 +244,52 @@ export class InstagramLoginConnector implements Connector {
     };
   }
 
-  /** Pull recent `media` for an Instagram account (`opts.accountId` is the IG user id). */
+  /**
+   * Pull an Instagram account's recent `media` (`opts.accountId` = IG user id),
+   * or the `comments` on one media (`opts.accountId` = media id). Reading
+   * comments requires the `instagram_business_manage_comments` scope.
+   */
   async pull(resource: string, opts: PullOptions): Promise<PulledItem[]> {
-    if (resource !== 'media') {
-      throw new AppError(
-        'bad_request',
-        `InstagramLoginConnector.pull: unsupported resource '${resource}' (expected 'media')`,
-      );
+    if (resource === 'media') {
+      const url = igUrl(`${opts.accountId}/media`, {
+        fields: 'id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count',
+        limit: opts.limit ?? DEFAULT_PULL_LIMIT,
+        after: opts.cursor,
+        access_token: opts.accessToken,
+      });
+      const res = await igGet<IgListResponse>(url);
+      return (res.data ?? []).map((node) => {
+        const capturedAt = node.timestamp ? new Date(node.timestamp) : new Date();
+        const metrics: Record<string, number> = {};
+        if (typeof node.like_count === 'number') metrics.likes = node.like_count;
+        if (typeof node.comments_count === 'number') metrics.comments = node.comments_count;
+        const base: PulledItem = { kind: 'media', externalId: node.id, raw: node, capturedAt };
+        return Object.keys(metrics).length > 0 ? { ...base, metrics } : base;
+      });
     }
-    const url = igUrl(`${opts.accountId}/media`, {
-      fields: 'id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count',
-      limit: opts.limit ?? DEFAULT_PULL_LIMIT,
-      after: opts.cursor,
-      access_token: opts.accessToken,
-    });
-    const res = await igGet<IgListResponse>(url);
-    return (res.data ?? []).map((node) => {
-      const capturedAt = node.timestamp ? new Date(node.timestamp) : new Date();
-      const metrics: Record<string, number> = {};
-      if (typeof node.like_count === 'number') metrics.likes = node.like_count;
-      if (typeof node.comments_count === 'number') metrics.comments = node.comments_count;
-      const base: PulledItem = { kind: 'media', externalId: node.id, raw: node, capturedAt };
-      return Object.keys(metrics).length > 0 ? { ...base, metrics } : base;
-    });
+
+    if (resource === 'comments') {
+      // `accountId` here is the media id whose comments we read.
+      const url = igUrl(`${opts.accountId}/comments`, {
+        fields: 'id,text,username,timestamp,like_count',
+        limit: opts.limit ?? DEFAULT_PULL_LIMIT,
+        after: opts.cursor,
+        access_token: opts.accessToken,
+      });
+      const res = await igGet<IgCommentListResponse>(url);
+      return (res.data ?? []).map((node) => {
+        const capturedAt = node.timestamp ? new Date(node.timestamp) : new Date();
+        const base: PulledItem = { kind: 'comment', externalId: node.id, raw: node, capturedAt };
+        return typeof node.like_count === 'number'
+          ? { ...base, metrics: { likes: node.like_count } }
+          : base;
+      });
+    }
+
+    throw new AppError(
+      'bad_request',
+      `InstagramLoginConnector.pull: unsupported resource '${resource}' (expected 'media' | 'comments')`,
+    );
   }
 
   /**

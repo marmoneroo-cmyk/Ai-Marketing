@@ -14,6 +14,7 @@ export const QUEUES = {
   conversationInbound: 'conversation.inbound',
   automationResume: 'automation.resume',
   contentPlan: 'content.plan',
+  commentsPoll: 'comments.poll',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -35,6 +36,11 @@ export interface ReindexJobData {
 
 /** Daily analytics rollup + optimization pass. */
 export interface AnalyticsJobData {
+  orgId: string;
+}
+
+/** Poll an org's Instagram media for new comments and ingest them into the inbox. */
+export interface CommentsPollJobData {
   orgId: string;
 }
 

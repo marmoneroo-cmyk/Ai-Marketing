@@ -10,6 +10,7 @@ import { createPublishWorker } from './workers/publish.worker';
 import { createConversationWorker } from './workers/conversation.worker';
 import { createAutomationResumeWorker } from './workers/automation-resume.worker';
 import { createContentWorker } from './workers/content.worker';
+import { createCommentsPollWorker } from './workers/comments.worker';
 
 /** Grace window for a worker's in-flight job(s) to finish before force-closing. */
 const WORKER_CLOSE_GRACE_MS = 10_000;
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
     createConversationWorker(ctx, connection),
     createAutomationResumeWorker(ctx, connection),
     createContentWorker(ctx, connection),
+    createCommentsPollWorker(ctx, connection),
   ];
 
   for (const w of workers) {

@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from 'bullmq';
 import { and, asc, eq, inArray, isNotNull, lte } from 'drizzle-orm';
-import { organizations, scheduledPosts, workflows } from '@brandpilot/db';
+import { organizations, scheduledPosts, socialAccounts, workflows } from '@brandpilot/db';
 import { logger, captureError } from '@brandpilot/observability';
 import type { WorkerContext } from './context';
 import { cronMatchesMinute, type WorkflowTrigger } from '@brandpilot/automation';
@@ -12,6 +12,7 @@ import { cronMatchesMinute, type WorkflowTrigger } from '@brandpilot/automation'
  *   - `daily.tick`        → per-org brain reindex + analytics rollup
  *   - `publish.tick`      → claim & dispatch due, approved scheduled posts
  *   - `workflow.tick`     → run due schedule-triggered workflows
+ *   - `comments.tick`     → poll connected Instagram accounts for new comments
  *
  * Recurrence is delegated to BullMQ (`upsertJobScheduler`), so the cadence
  * survives restarts and never double-fires across replicas sharing Redis.
@@ -23,11 +24,18 @@ const TICKS = {
   daily: 'daily.tick',
   publish: 'publish.tick',
   workflow: 'workflow.tick',
+  comments: 'comments.tick',
 } as const;
 
 /** Cron: 06:00 UTC daily. Kept as a constant so the cadence is obvious + testable. */
 const DAILY_CRON = '0 6 * * *';
 const MINUTE_MS = 60_000;
+/**
+ * How often to poll Instagram for new comments. 10 minutes balances inbox
+ * freshness against the IG API + per-comment LLM cost (each new comment drafts a
+ * reply); comment dedup means a re-poll of already-seen comments is cheap.
+ */
+const COMMENTS_POLL_INTERVAL_MS = 10 * MINUTE_MS;
 
 /** How many due posts / workflows to drain per tick (bounded to protect Redis + DB). */
 const TICK_BATCH_LIMIT = 200;
@@ -68,6 +76,11 @@ export async function startScheduler(ctx: WorkerContext): Promise<Scheduler> {
   await queue.upsertJobScheduler(TICKS.daily, { pattern: DAILY_CRON }, { name: TICKS.daily });
   await queue.upsertJobScheduler(TICKS.publish, { every: MINUTE_MS }, { name: TICKS.publish });
   await queue.upsertJobScheduler(TICKS.workflow, { every: MINUTE_MS }, { name: TICKS.workflow });
+  await queue.upsertJobScheduler(
+    TICKS.comments,
+    { every: COMMENTS_POLL_INTERVAL_MS },
+    { name: TICKS.comments },
+  );
 
   const worker = new Worker(
     SCHEDULER_QUEUE,
@@ -79,6 +92,8 @@ export async function startScheduler(ctx: WorkerContext): Promise<Scheduler> {
           return runPublishTick(ctx);
         case TICKS.workflow:
           return runWorkflowTick(ctx);
+        case TICKS.comments:
+          return runCommentsTick(ctx);
         default:
           return { skipped: job.name };
       }
@@ -142,6 +157,43 @@ export async function runDailyTick(ctx: WorkerContext): Promise<{ orgs: number; 
   }
 
   logger.info({ orgs: orgs.length, failed }, 'daily tick enqueued');
+  return { orgs: orgs.length, failed };
+}
+
+/**
+ * Comment-poll loop: enqueue a `comments.poll` job for every org that has a
+ * connected Instagram account, so the inbox ingests new comments. Batched +
+ * `Promise.allSettled` (same shape as {@link runDailyTick}) so one org's enqueue
+ * failure neither hides nor aborts another's. Orgs without a connected Instagram
+ * account are simply absent — no wasted jobs.
+ *
+ * Exported so tests can drive it against a fake `ctx.db` / `ctx.producers`.
+ */
+export async function runCommentsTick(ctx: WorkerContext): Promise<{ orgs: number; failed: number }> {
+  const orgs = await ctx.db
+    .selectDistinct({ id: socialAccounts.orgId })
+    .from(socialAccounts)
+    .where(and(eq(socialAccounts.provider, 'instagram'), eq(socialAccounts.status, 'connected')));
+
+  let failed = 0;
+  for (const batch of chunk(orgs, DAILY_TICK_ORG_BATCH)) {
+    const results = await Promise.allSettled(
+      batch.map((org) => ctx.producers.commentsPoll.add('poll', { orgId: org.id })),
+    );
+    results.forEach((result, index) => {
+      if (result.status !== 'rejected') return;
+      failed++;
+      const orgId = batch[index]?.id;
+      logger.error({ err: result.reason, orgId }, 'comments tick enqueue failed for org');
+      captureError(result.reason, { orgId });
+    });
+  }
+
+  if (orgs.length > 0) {
+    logger.info({ orgs: orgs.length, failed }, 'comments tick enqueued');
+  } else {
+    logger.debug({ orgs: 0 }, 'comments tick found no connected instagram accounts');
+  }
   return { orgs: orgs.length, failed };
 }
 

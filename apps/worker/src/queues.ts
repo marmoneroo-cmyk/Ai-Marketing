@@ -8,6 +8,7 @@ import {
   type ReindexJobData,
   type AnalyticsJobData,
   type ContentPlanJobData,
+  type CommentsPollJobData,
 } from '@brandpilot/core';
 
 /**
@@ -24,6 +25,7 @@ export interface Producers {
   brainReindex: Queue<ReindexJobData>;
   analyticsRollup: Queue<AnalyticsJobData>;
   contentPlan: Queue<ContentPlanJobData>;
+  commentsPoll: Queue<CommentsPollJobData>;
 }
 
 /** Build the producer set on the shared connection. */
@@ -34,6 +36,7 @@ export function createProducers(connection: IORedis): Producers {
     brainReindex: new Queue<ReindexJobData>(QUEUES.brainReindex, { connection }),
     analyticsRollup: new Queue<AnalyticsJobData>(QUEUES.analyticsRollup, { connection }),
     contentPlan: new Queue<ContentPlanJobData>(QUEUES.contentPlan, { connection }),
+    commentsPoll: new Queue<CommentsPollJobData>(QUEUES.commentsPoll, { connection }),
   };
 
   // BullMQ re-emits Redis connection errors as the Queue's own 'error' event;

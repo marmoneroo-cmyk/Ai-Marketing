@@ -40,7 +40,14 @@ const META_SCOPES = [
  * required — and uses the dedicated INSTAGRAM_APP_* credentials.
  */
 const INSTAGRAM_LOGIN_DIALOG = 'https://www.instagram.com/oauth/authorize';
-const INSTAGRAM_SCOPES = ['instagram_business_basic', 'instagram_business_content_publish'];
+const INSTAGRAM_SCOPES = [
+  'instagram_business_basic',
+  'instagram_business_content_publish',
+  // Read (and later reply to) comments on the business's own media, so the
+  // inbox can ingest them. In Development mode this works for the app's own
+  // roles/testers without App Review.
+  'instagram_business_manage_comments',
+];
 
 /** TikTok Login Kit authorize endpoint (v2) + the scopes we request. */
 const TIKTOK_OAUTH_AUTHORIZE = 'https://www.tiktok.com/v2/auth/authorize/';
