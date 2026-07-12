@@ -177,6 +177,20 @@ function LoginForm() {
           Demo build — any password signs you into the sample workspace.
         </p>
       ) : null}
+
+      <p className="mt-8 text-center text-xs text-subtle">
+        <Link href="/privacy" className="hover:text-foreground">
+          Privacy
+        </Link>
+        {" · "}
+        <Link href="/terms" className="hover:text-foreground">
+          Terms
+        </Link>
+        {" · "}
+        <Link href="/data-deletion" className="hover:text-foreground">
+          Data deletion
+        </Link>
+      </p>
     </div>
   );
 }
