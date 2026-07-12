@@ -146,7 +146,7 @@ export class ConnectorsController {
     @CurrentOrg() orgId: string,
     @Query('provider') providerParam?: string,
   ): Promise<ApiResponse<StartResponse>> {
-    await this.assertChannelCapacity(orgId);
+    await this.assertChannelCapacity(orgId, normalizeMetaPlatform(providerParam));
 
     const env = loadEnv();
     if (!env.META_APP_ID) {
@@ -211,7 +211,7 @@ export class ConnectorsController {
   @RequirePermissions('settings:manage')
   @ApiOperation({ summary: 'Get the Instagram Login OAuth authorize URL (no Facebook Page required)' })
   async getInstagramStart(@CurrentOrg() orgId: string): Promise<ApiResponse<StartResponse>> {
-    await this.assertChannelCapacity(orgId);
+    await this.assertChannelCapacity(orgId, 'instagram');
 
     const env = loadEnv();
     if (!env.INSTAGRAM_APP_ID) {
@@ -267,7 +267,7 @@ export class ConnectorsController {
   @RequirePermissions('settings:manage')
   @ApiOperation({ summary: 'Get the TikTok OAuth authorize URL to begin connecting an account' })
   async getTikTokStart(@CurrentOrg() orgId: string): Promise<ApiResponse<StartResponse>> {
-    await this.assertChannelCapacity(orgId);
+    await this.assertChannelCapacity(orgId, 'tiktok');
 
     const env = loadEnv();
     if (!env.TIKTOK_CLIENT_KEY) {
@@ -327,8 +327,8 @@ export class ConnectorsController {
    * that `start` already authorized, so re-checking there would just reject a
    * user mid-flow after they've already granted consent.
    */
-  private async assertChannelCapacity(orgId: string): Promise<void> {
-    const { maxChannels, connectedCount } = await withOrgScope(this.db, orgId, async (tx) => {
+  private async assertChannelCapacity(orgId: string, connectingProvider?: string): Promise<void> {
+    const { maxChannels, connectedCount, alreadyConnected } = await withOrgScope(this.db, orgId, async (tx) => {
       const org = await tx.query.organizations.findFirst({
         where: eq(organizations.id, orgId),
         columns: { plan: true, settings: true },
@@ -337,16 +337,23 @@ export class ConnectorsController {
         throw new AppError('not_found', 'Organization not found');
       }
 
-      const [row] = await tx
-        .select({ value: count(socialAccounts.id) })
+      const rows = await tx
+        .select({ provider: socialAccounts.provider })
         .from(socialAccounts)
         .where(and(eq(socialAccounts.orgId, orgId), eq(socialAccounts.status, 'connected')));
 
       return {
         maxChannels: resolvePlanCaps(org.plan, org.settings).maxChannels,
-        connectedCount: Number(row?.value ?? 0),
+        connectedCount: rows.length,
+        alreadyConnected: connectingProvider
+          ? rows.some((r) => r.provider === connectingProvider)
+          : false,
       };
     });
+
+    // Re-authorizing an ALREADY-connected provider (e.g. to grant new scopes)
+    // is a reconnect, not a new channel — it must never be blocked by the cap.
+    if (alreadyConnected) return;
 
     if (connectedCount >= maxChannels) {
       logger.info(
