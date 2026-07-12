@@ -347,6 +347,24 @@ export class ContentEngine {
       .limit(1);
     if (!item) throw new Error(`Content item ${contentItemId} not found`);
 
+    // Idempotency: if this item+platform already has a variant (e.g. a retried
+    // batch job re-running from the top after a mid-batch failure), return it
+    // instead of drafting a duplicate — which would double LLM spend and create
+    // a second approval row for the same draft.
+    const [existing] = await db
+      .select({ id: contentVariants.id, voiceScore: contentVariants.voiceScore })
+      .from(contentVariants)
+      .where(and(eq(contentVariants.contentItemId, contentItemId), eq(contentVariants.platform, platform)))
+      .limit(1);
+    if (existing) {
+      const priorScore = Number(existing.voiceScore ?? 0);
+      return {
+        variantId: existing.id,
+        voiceScore: Number.isFinite(priorScore) ? priorScore : 0,
+        needsReview: priorScore < VOICE_CONFORMANCE_THRESHOLD,
+      };
+    }
+
     const brief = item.brief ?? '';
     const pillar = item.pillar ?? '';
     const prompt = buildVariantPrompt({ platform, format: item.format, pillar, brief });
