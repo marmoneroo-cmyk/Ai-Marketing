@@ -10,7 +10,12 @@ import { cn } from "@/lib/cn";
 /** The four owner-facing content formats the picker offers (title-cased for display). */
 const FORMAT_OPTIONS = ["post", "carousel", "story", "reel"] as const;
 
-const QUEUED_STATUS_TEXT = "Queued — new drafts will appear shortly";
+const DRAFTING_STATUS_TEXT =
+  "Drafting your posts… this usually takes about a minute. They'll appear here automatically.";
+
+/** Auto-refresh cadence + window while the worker drafts, so new items appear without a manual reload. */
+const POLL_INTERVAL_MS = 5000;
+const MAX_POLLS = 18; // ~90s — comfortably covers a weekly plan + variant fan-out
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -30,10 +35,19 @@ export function GenerateContentButton() {
   const [generating, setGenerating] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
-  const [queued, setQueued] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const { notify } = useToast();
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // Guards the recursive refresh loop against firing setState/refresh after the
+  // user navigates away mid-draft.
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
   // Set right before closing the panel so a `useEffect` can return focus to the
   // trigger only after React has committed the panel's removal from the DOM —
   // focusing synchronously in the same tick loses to the currently-focused
@@ -65,7 +79,7 @@ export function GenerateContentButton() {
       const next = !open;
       if (next) {
         // Re-opening: clear any status left over from a previous generate.
-        setQueued(false);
+        setDrafting(false);
       } else {
         setPendingFocusReturn(true);
       }
@@ -82,9 +96,24 @@ export function GenerateContentButton() {
       );
       notify("Generating this week's content. New drafts will appear shortly.", "success");
       setSelectedFormats([]);
-      setQueued(true);
+      setDrafting(true);
       closePicker();
-      router.refresh();
+
+      // Poll the server component so freshly-drafted items appear WITHOUT a
+      // manual reload — the worker drafts asynchronously, so a single refresh
+      // right after enqueue would show the same empty page.
+      let polls = 0;
+      const poll = (): void => {
+        if (!active.current) return;
+        router.refresh();
+        polls += 1;
+        if (polls >= MAX_POLLS) {
+          setDrafting(false);
+          return;
+        }
+        setTimeout(poll, POLL_INTERVAL_MS);
+      };
+      setTimeout(poll, POLL_INTERVAL_MS);
     } catch (error: unknown) {
       notify(
         error instanceof Error ? error.message : "Couldn't start content generation.",
@@ -150,28 +179,14 @@ export function GenerateContentButton() {
         </div>
       )}
 
-      {queued && (
+      {drafting && (
         <div
           role="status"
           aria-live="polite"
-          className="flex w-full max-w-xs items-center justify-between gap-2 rounded-lg bg-surface-muted/60 px-3 py-1.5 text-xs text-muted"
+          className="flex w-full max-w-xs items-center gap-2 rounded-lg bg-surface-muted/60 px-3 py-1.5 text-xs text-muted"
         >
-          <span>✓ {QUEUED_STATUS_TEXT}</span>
-          <button
-            type="button"
-            onClick={() => setQueued(false)}
-            aria-label="Dismiss status"
-            className="shrink-0 rounded-md opacity-60 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
-          >
-            <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
-              <path
-                d="M5 5l10 10M15 5L5 15"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+          <span className="inline-block h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-brand-500" />
+          <span>{DRAFTING_STATUS_TEXT}</span>
         </div>
       )}
     </div>
