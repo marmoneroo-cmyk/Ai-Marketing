@@ -368,8 +368,12 @@ export class ConnectorsController {
   }
 
   /**
-   * Persist a freshly-connected account + its encrypted token in one org-scoped
-   * transaction (so RLS is enforced). Shared by the Meta and TikTok callbacks.
+   * Persist a connected account + its encrypted token in one org-scoped
+   * transaction (so RLS is enforced). Shared by the Meta / Instagram / TikTok
+   * callbacks. Idempotent per (org, provider, externalId): a RECONNECT (e.g. to
+   * grant new scopes) UPDATES the existing account + replaces its token rather
+   * than failing on the unique constraint. Untouched columns (e.g. the
+   * `metadata` follower snapshot) are preserved.
    */
   private async persistConnectedAccount(
     orgId: string,
@@ -389,6 +393,17 @@ export class ConnectorsController {
           ...(tokens.scopes !== undefined ? { scopes: tokens.scopes } : {}),
           status: 'connected',
         })
+        // Reconnect: same (org, provider, externalId) → refresh mutable fields
+        // (handle/displayName/scopes/status) instead of a duplicate-key error.
+        .onConflictDoUpdate({
+          target: [socialAccounts.orgId, socialAccounts.provider, socialAccounts.externalId],
+          set: {
+            status: 'connected',
+            ...(account.handle !== undefined ? { handle: account.handle } : {}),
+            ...(account.displayName !== undefined ? { displayName: account.displayName } : {}),
+            ...(tokens.scopes !== undefined ? { scopes: tokens.scopes } : {}),
+          },
+        })
         .returning({ id: socialAccounts.id });
 
       const socialAccountId = row?.id;
@@ -396,6 +411,9 @@ export class ConnectorsController {
         throw new AppError('internal_error', 'Failed to persist connected account');
       }
 
+      // Replace any existing token for this account so a reconnect installs the
+      // freshly-issued one (rather than leaving a stale token alongside it).
+      await tx.delete(connectorTokens).where(eq(connectorTokens.socialAccountId, socialAccountId));
       await tx.insert(connectorTokens).values({
         socialAccountId,
         accessTokenEnc: encryptToken(tokens.accessToken),
