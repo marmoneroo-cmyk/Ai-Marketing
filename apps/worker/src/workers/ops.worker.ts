@@ -4,6 +4,7 @@ import { QUEUES, type ReindexJobData, type AnalyticsJobData } from '@brandpilot/
 import { logger } from '@brandpilot/observability';
 import type { WorkerContext } from '../context';
 import { refreshFollowerMetrics } from '../audience-metrics';
+import { refreshExpiringTokens } from '../connection-health';
 
 /**
  * Continuous learning: recompute derived intelligence (voice, patterns, audience)
@@ -24,6 +25,9 @@ export function createReindexWorker(ctx: WorkerContext, connection: IORedis): Wo
         ['brand.performance', () => ctx.brand.analyzePerformance(orgId)],
         ['audience.segments', () => ctx.audience.buildPersonasAndSegments(orgId)],
         ['brain.knowledge', () => ctx.brain.indexApprovedKnowledge(orgId)],
+        // Keep connector tokens alive (refresh before expiry, mark expired on
+        // failure) so a customer's channels never silently die.
+        ['connection.health', () => refreshExpiringTokens(ctx, orgId)],
       ];
       let failed = 0;
       for (const [step, run] of steps) {
