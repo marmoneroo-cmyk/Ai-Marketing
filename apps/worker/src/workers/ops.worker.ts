@@ -15,11 +15,26 @@ export function createReindexWorker(ctx: WorkerContext, connection: IORedis): Wo
     QUEUES.brainReindex,
     async (job: Job<ReindexJobData>) => {
       const { orgId } = job.data;
-      await ctx.brand.computeVoiceProfile(orgId);
-      await ctx.brand.analyzePerformance(orgId);
-      await ctx.audience.buildPersonasAndSegments(orgId);
-      await ctx.brain.indexApprovedKnowledge(orgId);
-      return { ok: true };
+      // Per-step isolation: one failing step (e.g. a persona LLM call) must not
+      // skip the others, which would silently leave a customer's voice profile,
+      // performance patterns, or approved-knowledge index stale with no clue
+      // which step broke. Each runs independently and logs its own failure.
+      const steps: Array<readonly [string, () => Promise<unknown>]> = [
+        ['brand.voice', () => ctx.brand.computeVoiceProfile(orgId)],
+        ['brand.performance', () => ctx.brand.analyzePerformance(orgId)],
+        ['audience.segments', () => ctx.audience.buildPersonasAndSegments(orgId)],
+        ['brain.knowledge', () => ctx.brain.indexApprovedKnowledge(orgId)],
+      ];
+      let failed = 0;
+      for (const [step, run] of steps) {
+        try {
+          await run();
+        } catch (err: unknown) {
+          failed++;
+          logger.warn({ err, orgId, step }, 'reindex step failed');
+        }
+      }
+      return { ok: failed === 0, steps: steps.length, failed };
     },
     { connection, concurrency: 2 },
   );

@@ -48,6 +48,17 @@ export default async function DashboardPage() {
     recommendations.length > 0 ||
     completedTasks.length > 0;
 
+  // Only surface the KPI tiles once there's a real number to show — otherwise a
+  // brand-new org sees a row of five "0" tiles stacked above the "get started"
+  // empty state, which reads as broken. Followers alone (from a fresh connect)
+  // is enough to make the tiles worth showing.
+  const hasKpis =
+    kpis.reach > 0 ||
+    kpis.leads > 0 ||
+    kpis.appointments > 0 ||
+    kpis.revenue > 0 ||
+    kpis.followers > 0;
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {!org.emailVerified ? <VerifyEmailBanner /> : null}
@@ -76,7 +87,9 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI tiles */}
+      {/* KPI tiles — hidden until there's a real number, so a fresh org isn't
+          greeted by a wall of zeros above the empty state. */}
+      {hasActivity || hasKpis ? (
       <section className="stagger grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Reach"
@@ -114,6 +127,7 @@ export default async function DashboardPage() {
           href="/analytics"
         />
       </section>
+      ) : null}
 
       {!hasActivity ? (
         <EmptyState

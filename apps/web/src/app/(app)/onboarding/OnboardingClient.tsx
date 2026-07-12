@@ -27,7 +27,10 @@ const SOCIALS: Array<{ key: keyof ConnectorAvailability; label: string; hint: st
   { key: "tiktok", label: "TikTok", hint: "Videos & engagement" },
 ];
 
-type Status = "idle" | "running" | "ready" | "error";
+// "working" = discovery is taking longer than our poll window but is NOT an
+// error — the job is still running in the background. Kept distinct from
+// "error" so we never show a red failure for a slow-but-healthy run.
+type Status = "idle" | "running" | "working" | "ready" | "error";
 
 const MAX_POLLS = 20;
 const POLL_INTERVAL_MS = 3000;
@@ -162,9 +165,11 @@ export function OnboardingClient({ channels }: OnboardingClientProps) {
           return;
         }
         if (attempts >= MAX_POLLS) {
-          setStatus("error");
+          // Not an error — the worker is still analyzing. Tell the truth and
+          // point the user to where the results actually land.
+          setStatus("working");
           setMessage(
-            "Discovery is still running. It will appear on your dashboard shortly.",
+            "Still analyzing your business in the background — this can take a minute. Your Business DNA and first drafted posts will appear on the Content page shortly.",
           );
           return;
         }
