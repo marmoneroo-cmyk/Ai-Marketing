@@ -890,8 +890,14 @@ function oauthRouteFamily(provider: OAuthProvider): "meta" | "instagram" | "tikt
  */
 export async function startConnect(provider: OAuthProvider): Promise<string> {
   const family = oauthRouteFamily(provider);
-  const query = family === "meta" ? `?provider=${encodeURIComponent(provider)}` : "";
-  const { url } = await request<{ url: string }>(`/connectors/${family}/start${query}`);
+  const params = new URLSearchParams();
+  if (family === "meta") params.set("provider", provider);
+  // Return the browser to the page that started the connect (e.g. /onboarding)
+  // instead of always /settings. The API allow-lists this path, so an
+  // unexpected value is safely ignored.
+  if (typeof window !== "undefined") params.set("returnTo", window.location.pathname);
+  const qs = params.toString();
+  const { url } = await request<{ url: string }>(`/connectors/${family}/start${qs ? `?${qs}` : ""}`);
   return url;
 }
 

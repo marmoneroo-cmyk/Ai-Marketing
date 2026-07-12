@@ -20,7 +20,7 @@ import { PermissionsGuard } from '../auth/permissions.guard';
 import { RequirePermissions } from '../auth/require-permissions.decorator';
 import { Public } from '../auth/public.decorator';
 import { CurrentOrg } from '../auth/current-org.decorator';
-import { createOAuthState, readOAuthState, readOAuthStateWithProvider } from '../common/oauth-state';
+import { createOAuthState, readOAuthStateWithProvider } from '../common/oauth-state';
 import { buildChannelList, type WebChannel } from '../dashboard/read-model.mappers';
 
 /** Meta OAuth dialog (Graph v21.0) + the scopes we request for publishing/reading. */
@@ -70,6 +70,22 @@ function normalizeMetaPlatform(value: string | undefined): MetaPlatform {
 
 interface StartResponse {
   url: string;
+}
+
+/**
+ * In-app paths a connect flow may return to after its callback. An allow-list
+ * (not an arbitrary path) so a `returnTo` — even though it's signed inside the
+ * state — can never drive an open redirect to another origin or an unexpected
+ * route. Anything not listed falls back to the Settings page.
+ */
+const ALLOWED_RETURN_PATHS = ['/settings', '/onboarding', '/dashboard'] as const;
+const DEFAULT_RETURN_PATH = '/settings';
+
+/** Narrow a caller-supplied return path to the allow-list, else the default. */
+function safeReturnTo(value: string | undefined): string {
+  return value !== undefined && (ALLOWED_RETURN_PATHS as readonly string[]).includes(value)
+    ? value
+    : DEFAULT_RETURN_PATH;
 }
 
 /** Which social connectors have server-side credentials configured (booleans only — never secrets). */
@@ -145,6 +161,7 @@ export class ConnectorsController {
   async getMetaStart(
     @CurrentOrg() orgId: string,
     @Query('provider') providerParam?: string,
+    @Query('returnTo') returnTo?: string,
   ): Promise<ApiResponse<StartResponse>> {
     await this.assertChannelCapacity(orgId, normalizeMetaPlatform(providerParam));
 
@@ -159,7 +176,7 @@ export class ConnectorsController {
     // Signed, single-use CSRF state bound to this org AND the chosen platform:
     // the callback is a third-party redirect with no other app state, so
     // `provider` has to travel inside the state to survive the round trip.
-    const state = createOAuthState(orgId, env.AUTH_SECRET, provider);
+    const state = createOAuthState(orgId, env.AUTH_SECRET, provider, safeReturnTo(returnTo));
 
     // Must be byte-identical to the token-exchange redirect_uri (see MetaConnector)
     // and target the API origin — Meta rejects a mismatch.
@@ -188,18 +205,21 @@ export class ConnectorsController {
     // always blaming instagram. State may be forged/expired — tolerate that here;
     // the authoritative validation (which throws) still gates the connect below.
     let provider: MetaPlatform = 'instagram';
+    let returnTo = DEFAULT_RETURN_PATH;
     try {
       if (state) {
-        provider = normalizeMetaPlatform(readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET).provider);
+        const decoded = readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET);
+        provider = normalizeMetaPlatform(decoded.provider);
+        returnTo = safeReturnTo(decoded.returnTo);
       }
     } catch {
-      /* keep the default; real validation happens in the try block */
+      /* keep the defaults; real validation happens in the try block */
     }
 
     try {
       // Provider returned an error (e.g. the user denied consent) or no code.
       if (error || !code) {
-        this.redirectToSettings(res, provider, false);
+        this.redirectToSettings(res, provider, false, returnTo);
         return;
       }
 
@@ -211,19 +231,22 @@ export class ConnectorsController {
       const { tokens, account } = await new MetaConnector().connect(code);
       await this.persistConnectedAccount(orgId, provider, account, tokens);
 
-      this.redirectToSettings(res, provider, true);
+      this.redirectToSettings(res, provider, true, returnTo);
     } catch (err) {
       // Never surface raw JSON/stack to the browser mid-OAuth — log + land the
       // user back in the app with an error state they can retry from.
       logger.warn({ err }, 'Meta OAuth callback failed');
-      this.redirectToSettings(res, provider, false);
+      this.redirectToSettings(res, provider, false, returnTo);
     }
   }
 
   @Get('instagram/start')
   @RequirePermissions('settings:manage')
   @ApiOperation({ summary: 'Get the Instagram Login OAuth authorize URL (no Facebook Page required)' })
-  async getInstagramStart(@CurrentOrg() orgId: string): Promise<ApiResponse<StartResponse>> {
+  async getInstagramStart(
+    @CurrentOrg() orgId: string,
+    @Query('returnTo') returnTo?: string,
+  ): Promise<ApiResponse<StartResponse>> {
     await this.assertChannelCapacity(orgId, 'instagram');
 
     const env = loadEnv();
@@ -231,8 +254,9 @@ export class ConnectorsController {
       throw new AppError('bad_request', 'INSTAGRAM_APP_ID is not configured');
     }
 
-    // Signed, single-use CSRF state bound to this org (verified in the callback).
-    const state = createOAuthState(orgId, env.AUTH_SECRET);
+    // Signed, single-use CSRF state bound to this org (verified in the callback);
+    // also carries where to land the browser afterward.
+    const state = createOAuthState(orgId, env.AUTH_SECRET, undefined, safeReturnTo(returnTo));
 
     // Must be byte-identical to the token-exchange redirect_uri (see
     // InstagramLoginConnector) and target the API origin — Instagram rejects a mismatch.
@@ -256,30 +280,43 @@ export class ConnectorsController {
     @Query('state') state?: string,
     @Query('error') error?: string,
   ): Promise<void> {
+    // Best-effort: recover the return path from state so error redirects land
+    // back where the user started (tolerate a forged/expired state here).
+    let returnTo = DEFAULT_RETURN_PATH;
+    try {
+      if (state) returnTo = safeReturnTo(readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET).returnTo);
+    } catch {
+      /* keep the default; real validation happens below */
+    }
+
     try {
       // Provider returned an error (e.g. the user denied consent) or no code.
       if (error || !code) {
-        this.redirectToSettings(res, 'instagram', false);
+        this.redirectToSettings(res, 'instagram', false, returnTo);
         return;
       }
 
       // Third-party redirect with no JWT: the org comes from the signed `state`
       // issued at `start` (also rejects forged/expired state before any work).
-      const orgId = readOAuthState(state, loadEnv().AUTH_SECRET);
+      const decoded = readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET);
+      returnTo = safeReturnTo(decoded.returnTo);
       const { tokens, account } = await new InstagramLoginConnector().connect(code);
-      await this.persistConnectedAccount(orgId, 'instagram', account, tokens);
+      await this.persistConnectedAccount(decoded.orgId, 'instagram', account, tokens);
 
-      this.redirectToSettings(res, 'instagram', true);
+      this.redirectToSettings(res, 'instagram', true, returnTo);
     } catch (err) {
       logger.warn({ err }, 'Instagram OAuth callback failed');
-      this.redirectToSettings(res, 'instagram', false);
+      this.redirectToSettings(res, 'instagram', false, returnTo);
     }
   }
 
   @Get('tiktok/start')
   @RequirePermissions('settings:manage')
   @ApiOperation({ summary: 'Get the TikTok OAuth authorize URL to begin connecting an account' })
-  async getTikTokStart(@CurrentOrg() orgId: string): Promise<ApiResponse<StartResponse>> {
+  async getTikTokStart(
+    @CurrentOrg() orgId: string,
+    @Query('returnTo') returnTo?: string,
+  ): Promise<ApiResponse<StartResponse>> {
     await this.assertChannelCapacity(orgId, 'tiktok');
 
     const env = loadEnv();
@@ -287,8 +324,9 @@ export class ConnectorsController {
       throw new AppError('bad_request', 'TIKTOK_CLIENT_KEY is not configured');
     }
 
-    // Signed, single-use CSRF state bound to this org (verified in the callback).
-    const state = createOAuthState(orgId, env.AUTH_SECRET);
+    // Signed, single-use CSRF state bound to this org (verified in the callback);
+    // also carries where to land the browser afterward.
+    const state = createOAuthState(orgId, env.AUTH_SECRET, undefined, safeReturnTo(returnTo));
 
     // Must be byte-identical to the token-exchange redirect_uri (see TikTokConnector)
     // and target the API origin — TikTok rejects a mismatch.
@@ -312,24 +350,34 @@ export class ConnectorsController {
     @Query('state') state?: string,
     @Query('error') error?: string,
   ): Promise<void> {
+    // Best-effort: recover the return path from state so error redirects land
+    // back where the user started (tolerate a forged/expired state here).
+    let returnTo = DEFAULT_RETURN_PATH;
+    try {
+      if (state) returnTo = safeReturnTo(readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET).returnTo);
+    } catch {
+      /* keep the default; real validation happens below */
+    }
+
     try {
       // Provider returned an error (e.g. the user denied consent) or no code.
       if (error || !code) {
-        this.redirectToSettings(res, 'tiktok', false);
+        this.redirectToSettings(res, 'tiktok', false, returnTo);
         return;
       }
 
       // A provider redirect is a third-party navigation with no JWT: the org comes
       // from the signed `state` we issued at `start`. This also rejects
       // forged/expired state (throws) before any work.
-      const orgId = readOAuthState(state, loadEnv().AUTH_SECRET);
+      const decoded = readOAuthStateWithProvider(state, loadEnv().AUTH_SECRET);
+      returnTo = safeReturnTo(decoded.returnTo);
       const { tokens, account } = await new TikTokConnector().connect(code);
-      await this.persistConnectedAccount(orgId, 'tiktok', account, tokens);
+      await this.persistConnectedAccount(decoded.orgId, 'tiktok', account, tokens);
 
-      this.redirectToSettings(res, 'tiktok', true);
+      this.redirectToSettings(res, 'tiktok', true, returnTo);
     } catch (err) {
       logger.warn({ err }, 'TikTok OAuth callback failed');
-      this.redirectToSettings(res, 'tiktok', false);
+      this.redirectToSettings(res, 'tiktok', false, returnTo);
     }
   }
 
@@ -443,9 +491,16 @@ export class ConnectorsController {
    * `?connect_error` drive a success/error toast on the Settings page — we never
    * return JSON to a top-level navigation the user is looking at.
    */
-  private redirectToSettings(res: Response, provider: string, connected: boolean): void {
+  private redirectToSettings(
+    res: Response,
+    provider: string,
+    connected: boolean,
+    returnTo: string = DEFAULT_RETURN_PATH,
+  ): void {
     const appUrl = loadEnv().APP_URL.replace(/\/+$/, '');
     const param = connected ? `connected=${provider}` : `connect_error=${provider}`;
-    res.redirect(`${appUrl}/settings?${param}`);
+    // safeReturnTo again at the redirect boundary — defense in depth against a
+    // path that somehow bypassed validation at `start`.
+    res.redirect(`${appUrl}${safeReturnTo(returnTo)}?${param}`);
   }
 }

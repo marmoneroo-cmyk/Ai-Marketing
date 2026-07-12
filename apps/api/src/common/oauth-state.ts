@@ -16,6 +16,14 @@ interface StatePayload {
    * before this field existed.
    */
   provider?: string;
+  /**
+   * Optional in-app path to return the browser to after the callback (e.g.
+   * `/onboarding` vs `/settings`), so a connect started from onboarding doesn't
+   * eject the user to settings. Signed inside the state (cannot be tampered) and
+   * still allow-listed by the callback before use, so it can't drive an open
+   * redirect. Undefined for states issued before this field existed.
+   */
+  returnTo?: string;
 }
 
 /** base64url-encode a buffer (no padding), safe for use in a URL query param. */
@@ -45,12 +53,18 @@ function sign(payloadB64: string, secret: string): string {
  * Verified in the callback via {@link readOAuthState} or
  * {@link readOAuthStateWithProvider}.
  */
-export function createOAuthState(orgId: string, secret: string, provider?: string): string {
+export function createOAuthState(
+  orgId: string,
+  secret: string,
+  provider?: string,
+  returnTo?: string,
+): string {
   const payload: StatePayload = {
     orgId,
     nonce: randomBytes(16).toString('hex'),
     exp: Date.now() + STATE_TTL_MS,
     ...(provider !== undefined ? { provider } : {}),
+    ...(returnTo !== undefined ? { returnTo } : {}),
   };
   const payloadB64 = toBase64Url(Buffer.from(JSON.stringify(payload), 'utf8'));
   return `${payloadB64}.${sign(payloadB64, secret)}`;
@@ -133,11 +147,13 @@ export function readOAuthState(state: string | undefined, secret: string): strin
 export function readOAuthStateWithProvider(
   state: string | undefined,
   secret: string,
-): { orgId: string; provider?: string } {
+): { orgId: string; provider?: string; returnTo?: string } {
   const payload = decodeVerifiedState(state, secret);
-  return payload.provider !== undefined
-    ? { orgId: payload.orgId, provider: payload.provider }
-    : { orgId: payload.orgId };
+  return {
+    orgId: payload.orgId,
+    ...(payload.provider !== undefined ? { provider: payload.provider } : {}),
+    ...(payload.returnTo !== undefined ? { returnTo: payload.returnTo } : {}),
+  };
 }
 
 /**

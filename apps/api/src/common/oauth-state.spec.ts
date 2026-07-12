@@ -60,6 +60,20 @@ describe('OAuth state', () => {
       expect(readOAuthStateWithProvider(state, SECRET)).toEqual({ orgId: ORG });
     });
 
+    it('round-trips a returnTo path bound at issue (for post-connect redirect)', () => {
+      const state = createOAuthState(ORG, SECRET, 'instagram', '/onboarding');
+      expect(readOAuthStateWithProvider(state, SECRET)).toEqual({
+        orgId: ORG,
+        provider: 'instagram',
+        returnTo: '/onboarding',
+      });
+    });
+
+    it('carries returnTo even for a single-provider (no-provider) state', () => {
+      const state = createOAuthState(ORG, SECRET, undefined, '/onboarding');
+      expect(readOAuthStateWithProvider(state, SECRET)).toEqual({ orgId: ORG, returnTo: '/onboarding' });
+    });
+
     it('still enforces the same HMAC/expiry checks as readOAuthState', () => {
       const state = createOAuthState(ORG, SECRET, 'instagram');
       const [payload, sig] = state.split('.');
